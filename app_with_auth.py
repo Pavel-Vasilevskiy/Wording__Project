@@ -78,6 +78,27 @@ def index():
     
     return render_template("index.html", user=current_user)
 
+@app.route('/game_state')
+@login_required
+def game_state():
+    """Return the current session's saved game state for page restoration."""
+    guesses = session.get('guesses', [])
+    if not isinstance(guesses, list):
+        guesses = []
+
+    # Guess history is the source of truth for the current row and attempt count.
+    tries = len(guesses)
+    game_over = bool(session.get('game_over', False))
+    won = bool(session.get('won', False)) if game_over else False
+    return jsonify({
+        'guesses': guesses,
+        'tries': tries,
+        'game_over': game_over,
+        'won': won,
+        # Do not disclose the answer until the game has ended.
+        'target_word': session.get('target_word') if game_over else None,
+    })
+
 @app.route('/login')
 def login():
     """Login page"""
@@ -186,8 +207,10 @@ def make_guess():
         return jsonify({'error': validation_error}), 400
 
     target_word = session.get('target_word')
-    tries = session.get('tries', 0)
     guesses = list(session.get('guesses', []))
+    # The saved guess history is authoritative; this prevents its length and
+    # the current row counter from drifting apart.
+    tries = len(guesses)
     
     # Check the guess
     result = check_guess(guess, target_word)

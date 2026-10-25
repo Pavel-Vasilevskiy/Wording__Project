@@ -1,6 +1,7 @@
 let currentGuess = '';
 let gameOver = false;
 let submissionPending = false;
+let gameReady = false;
 let keyboardState = {}; // Track keyboard key states
 
 // DOM elements
@@ -71,7 +72,7 @@ guessInput.addEventListener('keypress', function(e) {
 submitButton.addEventListener('click', submitGuess);
 
 function submitGuess() {
-    if (submissionPending) return;
+    if (!gameReady || submissionPending) return;
 
     if (gameOver) {
         gameStatus.textContent = 'Game is over! Start a new game.';
@@ -162,6 +163,8 @@ function updateGameBoard(result, rowIndex) {
 
 // New game
 newGameButton.addEventListener('click', function() {
+    if (!gameReady || submissionPending) return;
+
     fetch('/new_game', {
         method: 'POST',
         headers: {
@@ -181,6 +184,7 @@ newGameButton.addEventListener('click', function() {
         updateCurrentGuess();
         initializeGameBoard();
         resetKeyboard();
+        gameReady = true;
     })
     .catch(error => {
         console.error('Error:', error);
@@ -230,7 +234,7 @@ function initializeKeyboard() {
 
 // Handle key press from virtual keyboard
 function handleKeyPress(letter) {
-    if (gameOver) return;
+    if (!gameReady || gameOver) return;
     
     if (currentGuess.length < 5) {
         currentGuess += letter;
@@ -241,7 +245,7 @@ function handleKeyPress(letter) {
 
 // Handle backspace
 function handleBackspace() {
-    if (gameOver) return;
+    if (!gameReady || gameOver) return;
     
     if (currentGuess.length > 0) {
         currentGuess = currentGuess.slice(0, -1);
@@ -402,4 +406,41 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize the game board on page load
 initializeGameBoard();
 initializeKeyboard();
-gameStatus.textContent = 'Welcome to Wordle! Enter a 5-letter word to start.';
+guessInput.disabled = true;
+submitButton.disabled = true;
+gameStatus.textContent = 'Loading your game...';
+
+fetch('/game_state')
+    .then(response => {
+        if (!response.ok) throw new Error('Could not load the saved game');
+        return response.json();
+    })
+    .then(state => {
+        initializeGameBoard();
+        resetKeyboard();
+
+        state.guesses.forEach((result, rowIndex) => {
+            updateGameBoard(result, rowIndex);
+            updateKeyboardState(result);
+        });
+
+        triesCount.textContent = state.tries;
+        gameOver = state.game_over;
+        if (state.won) {
+            gameStatus.textContent = `🎉 Congratulations! You won in ${state.tries} tries!`;
+        } else if (state.game_over) {
+            gameStatus.textContent = `😞 Game over! The word was: ${state.target_word}`;
+        } else if (state.tries > 0) {
+            gameStatus.textContent = `Try ${state.tries}/6`;
+        } else {
+            gameStatus.textContent = 'Welcome to Wordle! Enter a 5-letter word to start.';
+        }
+
+        gameReady = true;
+        guessInput.disabled = false;
+        submitButton.disabled = false;
+    })
+    .catch(error => {
+        console.error('Error restoring game:', error);
+        gameStatus.textContent = 'Could not load your game. Please reload the page.';
+    });
