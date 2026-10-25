@@ -32,7 +32,7 @@ class User(UserMixin, db.Model):
         return round((self.games_won / self.games_played) * 100, 1)
     
     def update_stats(self, won, tries):
-        """Update user statistics after a game"""
+        """Update user statistics after a game; the caller commits the transaction."""
         self.games_played += 1
         if won:
             self.games_won += 1
@@ -41,7 +41,6 @@ class User(UserMixin, db.Model):
                 self.max_streak = self.current_streak
         else:
             self.current_streak = 0
-        db.session.commit()
 
 class GameSession(db.Model):
     """Model for storing individual game sessions"""

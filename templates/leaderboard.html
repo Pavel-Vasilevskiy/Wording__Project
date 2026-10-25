@@ -188,6 +188,12 @@
             </div>
             {% endfor %}
         </div>
+        {% elif load_error %}
+        <div class="leaderboard-table">
+            <div class="empty-state">
+                The leaderboard is temporarily unavailable. Please try again shortly.
+            </div>
+        </div>
         {% else %}
         <div class="leaderboard-table">
             <div class="empty-state">

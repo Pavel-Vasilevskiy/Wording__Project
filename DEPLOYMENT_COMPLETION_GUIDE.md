@@ -91,3 +91,37 @@ Once completed, your Wordle app will be fully functional with:
 
 Your app will be accessible from anywhere in the world at:
 **https://wordle-game.fly.dev/**
+
+## Persistent SQLite storage
+
+The authenticated app stores users, leaderboard statistics, and completed game
+records in SQLite. In Fly production, `fly.toml` sets
+`DATABASE_URL=sqlite:////data/wordle_users.db` and mounts the `wordle_data`
+volume at `/data`. Locally, the app continues to use the default SQLite
+database under Flask's `instance/` directory (or the `DATABASE_URL` from `.env`).
+
+`app_with_auth.py` runs `db.create_all()` at startup. This creates the tables
+when the mounted database is empty and leaves an existing schema intact.
+
+Fly Machine count is not set in `fly.toml`. SQLite on a Fly Volume must use one
+Machine because Fly Volumes are local to one Machine and do not replicate. Check
+the current count first, then use these commands when you are ready to configure
+and deploy:
+
+```bash
+fly scale show --app wordle-game
+fly scale count 1 --region fra --app wordle-game
+fly volumes create wordle_data --region fra --size 1 --app wordle-game
+fly deploy --ha=false --app wordle-game
+fly scale show --app wordle-game
+fly volumes list --app wordle-game
+```
+
+If the app currently has more than one Machine, run the scale command to reduce
+it to one. If it has zero Machines, skip scaling and use `fly deploy --ha=false`
+to create one. The volume command creates billable storage; do not repeat it if
+a `wordle_data` volume already exists. `--ha=false` prevents Fly from creating
+an additional standby Machine on this deployment. Keep the app at one Machine
+on later deploys as well. Since this app intentionally accepts losing its old
+test records, a fresh empty volume can be used without importing the previous
+SQLite file.

@@ -6,6 +6,7 @@ from flask import Flask, request, render_template, url_for, jsonify, session, re
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
 
 # Load environment variables
@@ -181,9 +182,12 @@ def make_guess():
     if len(guess) != 5:
         return jsonify({'error': 'Word must be 5 letters long'}), 400
     
+    if session.get('game_over', False):
+        return jsonify({'error': 'Game is already over. Start a new game.'}), 409
+
     target_word = session.get('target_word')
     tries = session.get('tries', 0)
-    guesses = session.get('guesses', [])
+    guesses = list(session.get('guesses', []))
     
     # Check the guess
     result = check_guess(guess, target_word)
@@ -194,26 +198,32 @@ def make_guess():
     won = guess == target_word
     game_over = won or tries >= 6
     
-    # Update session
+    # If game is over, save to database and update user stats
+    if game_over:
+        try:
+            game_session = GameSession(
+                user_id=current_user.id,
+                target_word=target_word,
+                guesses=json.dumps(guesses),
+                won=won,
+                tries_used=tries,
+                completed_at=datetime.utcnow()
+            )
+            db.session.add(game_session)
+
+            # Update account statistics in the same transaction as the result.
+            current_user.update_stats(won, tries)
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception('Could not persist completed game for user %s', current_user.id)
+            return jsonify({'error': 'Unable to save game result. Please try again.'}), 503
+
+    # Only persist the game state in the signed session after its database write succeeds.
     session['tries'] = tries
     session['guesses'] = guesses
     session['game_over'] = game_over
     session['won'] = won
-    
-    # If game is over, save to database and update user stats
-    if game_over:
-        game_session = GameSession(
-            user_id=current_user.id,
-            target_word=target_word,
-            guesses=json.dumps(guesses),
-            won=won,
-            tries_used=tries,
-            completed_at=datetime.utcnow()
-        )
-        db.session.add(game_session)
-        
-        # Update user statistics
-        current_user.update_stats(won, tries)
     
     response_data = {
         'result': result,
@@ -253,19 +263,30 @@ def show_word():
 @login_required
 def leaderboard():
     """Show leaderboard with top players"""
-    # Get all users with games played and sort them by win percentage and max streak
-    users_with_games = User.query.filter(User.games_played > 0).all()
-    
-    # Sort by win percentage (descending), then by max streak (descending), then by games won (descending)
-    top_players = sorted(users_with_games, 
-                        key=lambda u: (u.win_percentage, u.max_streak, u.games_won), 
-                        reverse=True)[:20]
+    try:
+        # Get all users with games played and sort them by win percentage and max streak
+        users_with_games = User.query.filter(User.games_played > 0).all()
+
+        # Sort by win percentage (descending), then by max streak (descending), then by games won (descending)
+        top_players = sorted(users_with_games,
+                            key=lambda u: (u.win_percentage, u.max_streak, u.games_won),
+                            reverse=True)[:20]
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception('Could not load leaderboard')
+        return render_template('leaderboard.html', top_players=[], load_error=True), 503
     
     return render_template('leaderboard.html', top_players=top_players)
 
-if __name__ == '__main__':
+
+def initialize_database():
+    """Create missing tables for a fresh database without altering existing tables."""
     with app.app_context():
         db.create_all()
+
+
+if __name__ == '__main__':
+    initialize_database()
     
     # Check if Google OAuth is configured
     if not os.getenv('GOOGLE_CLIENT_ID') or not os.getenv('GOOGLE_CLIENT_SECRET'):
