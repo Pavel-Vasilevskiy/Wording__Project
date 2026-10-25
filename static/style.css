@@ -235,6 +235,22 @@ body {
     margin-bottom: 5px;
 }
 
+.current-guess.shake {
+    animation: guess-row-shake 400ms ease-in-out;
+}
+
+@keyframes guess-row-shake {
+    0%, 100% { transform: translateX(0); }
+    15%, 45%, 75% { transform: translateX(-6px); }
+    30%, 60%, 90% { transform: translateX(6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .current-guess.shake {
+        animation: none;
+    }
+}
+
 .letter-box {
     width: 60px;
     height: 60px;

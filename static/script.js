@@ -13,6 +13,12 @@ const triesCount = document.getElementById('tries-count');
 const gameBoard = document.getElementById('game-board');
 const currentGuessDiv = document.getElementById('current-guess');
 
+currentGuessDiv.addEventListener('animationend', function(e) {
+    if (e.animationName === 'guess-row-shake') {
+        currentGuessDiv.classList.remove('shake');
+    }
+});
+
 // Sidebar elements
 const mobileMenuBtn = document.getElementById('mobile-menu-btn');
 const sidebar = document.getElementById('sidebar');
@@ -91,6 +97,12 @@ function submitGuess() {
     .then(data => {
         if (data.error) {
             gameStatus.textContent = data.error;
+            if (data.error === 'Not in word list') {
+                currentGuessDiv.classList.remove('shake');
+                // Force a reflow so consecutive invalid guesses restart the animation.
+                void currentGuessDiv.offsetWidth;
+                currentGuessDiv.classList.add('shake');
+            }
             return;
         }
 
