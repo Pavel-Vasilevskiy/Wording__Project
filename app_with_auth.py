@@ -1,6 +1,5 @@
 import os
 import json
-import random
 from datetime import datetime
 from flask import Flask, request, render_template, url_for, jsonify, session, redirect, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -8,6 +7,7 @@ from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
+from word_dictionary import EN_US_DICTIONARY, validate_guess
 
 # Load environment variables
 load_dotenv()
@@ -43,11 +43,8 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 def pick_word():
-    """Pick a random word from words.json"""
-    with open("words.json", "r") as file:
-        words = json.load(file)
-        word = words[random.randint(0, len(words) - 1)]
-    return word.upper()
+    """Pick a uniformly random answer from the loaded en-US dictionary."""
+    return EN_US_DICTIONARY.choose_answer().upper()
 
 def check_guess(guess, target_word):
     """Check the guess against target word and return color coding"""
@@ -72,7 +69,7 @@ def index():
         return redirect(url_for('login'))
     
     # Initialize new game if not exists
-    if 'target_word' not in session:
+    if not EN_US_DICTIONARY.contains(session.get('target_word')):
         session['target_word'] = pick_word()
         session['tries'] = 0
         session['guesses'] = []
@@ -177,13 +174,16 @@ def profile():
 def make_guess():
     """Process a guess"""
     data = request.get_json()
-    guess = data.get('guess', '').upper()
-    
-    if len(guess) != 5:
+    raw_guess = data.get('guess', '') if isinstance(data, dict) else ''
+    if not isinstance(raw_guess, str) or len(raw_guess) != 5:
         return jsonify({'error': 'Word must be 5 letters long'}), 400
-    
+
     if session.get('game_over', False):
         return jsonify({'error': 'Game is already over. Start a new game.'}), 409
+
+    guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
 
     target_word = session.get('target_word')
     tries = session.get('tries', 0)

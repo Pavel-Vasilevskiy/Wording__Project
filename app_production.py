@@ -1,17 +1,13 @@
 from flask import Flask, request, render_template, url_for, jsonify, session
-import json
-import random
 import os
+from word_dictionary import EN_US_DICTIONARY, validate_guess
 
 app = Flask(__name__)
 app.secret_key = 'wordle_secret_key_2024'  # Needed for sessions
 
 def pick_word():
-    """Pick a random word from words.json"""
-    with open("words.json", "r") as file:
-        words = json.load(file)
-        word = words[random.randint(0, len(words) - 1)]
-    return word.upper()
+    """Pick a uniformly random answer from the loaded en-US dictionary."""
+    return EN_US_DICTIONARY.choose_answer().upper()
 
 def check_guess(guess, target_word):
     """Check the guess against target word and return color coding"""
@@ -44,10 +40,10 @@ def index():
 def make_guess():
     """Process a guess"""
     data = request.get_json()
-    guess = data.get('guess', '').upper()
-    
-    if len(guess) != 5:
-        return jsonify({'error': 'Word must be 5 letters long'}), 400
+    raw_guess = data.get('guess', '') if isinstance(data, dict) else ''
+    guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
+    if validation_error:
+        return jsonify({'error': validation_error}), 400
     
     target_word = session.get('target_word')
     tries = session.get('tries', 0)

@@ -1,5 +1,6 @@
 let currentGuess = '';
 let gameOver = false;
+let submissionPending = false;
 let keyboardState = {}; // Track keyboard key states
 
 // DOM elements
@@ -64,6 +65,8 @@ guessInput.addEventListener('keypress', function(e) {
 submitButton.addEventListener('click', submitGuess);
 
 function submitGuess() {
+    if (submissionPending) return;
+
     if (gameOver) {
         gameStatus.textContent = 'Game is over! Start a new game.';
         return;
@@ -73,6 +76,9 @@ function submitGuess() {
         gameStatus.textContent = 'Please enter a 5-letter word!';
         return;
     }
+
+    submissionPending = true;
+    submitButton.disabled = true;
 
     fetch('/guess', {
         method: 'POST',
@@ -126,6 +132,10 @@ function submitGuess() {
     .catch(error => {
         console.error('Error:', error);
         gameStatus.textContent = 'An error occurred. Please try again.';
+    })
+    .finally(() => {
+        submissionPending = false;
+        submitButton.disabled = false;
     });
 }
 
