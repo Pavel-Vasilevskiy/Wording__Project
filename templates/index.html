@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Wordle by Pavlo</title>
+    <title>Wordle — {{ portal_name }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <a href="{{ url_for('index') }}" class="portal-game-home" aria-label="Повернутися до всіх ігор">← До всіх ігор</a>
     <!-- Mobile Menu Button -->
     {% if user %}
     <button class="mobile-menu-btn" id="mobile-menu-btn">☰</button>

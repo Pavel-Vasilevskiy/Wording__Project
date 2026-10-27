@@ -144,6 +144,46 @@ body {
     border: 1px solid #3a3a3c;
 }
 
+/* Return to the public game portal without covering the game board. */
+.portal-game-home {
+    position: fixed;
+    top: 12px;
+    right: 16px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 13px;
+    border: 1px solid #5a9a54;
+    border-radius: 8px;
+    background: #6aaa64;
+    color: #fff;
+    font-size: .9rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-decoration: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+    transition: background-color .2s, transform .2s;
+}
+
+.portal-game-home:hover {
+    background: #5a9a54;
+    transform: translateY(-1px);
+}
+
+.portal-game-home:focus-visible {
+    outline: 3px solid #c9b458;
+    outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+    .portal-game-home {
+        top: 12px;
+        right: 12px;
+        padding: 8px 10px;
+        font-size: .8rem;
+    }
+}
+
 .user-info {
     display: flex;
     align-items: center;

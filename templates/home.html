@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <title>{{ portal_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body.portal-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        .portal-shell { width: min(100% - 36px, 1040px); margin: 0 auto; padding: 28px 0 56px; }
+        .portal-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+        .portal-brand { color: inherit; font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+        .portal-login { color: #dbeafe; text-decoration: none; border: 1px solid #52627a; border-radius: 999px; padding: 9px 15px; }
+        .portal-hero { padding: clamp(56px, 12vw, 112px) 0 44px; text-align: center; }
+        .portal-hero h1 { font-size: clamp(2.3rem, 7vw, 4.4rem); line-height: 1.05; margin: 0 0 18px; letter-spacing: -.04em; }
+        .portal-hero p { color: #bdc9dc; font-size: clamp(1rem, 2vw, 1.2rem); margin: 0 auto; max-width: 580px; }
+        .game-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 18px; }
+        .game-card { min-height: 220px; display: flex; flex-direction: column; align-items: flex-start; padding: 24px; border: 1px solid #34445b; border-radius: 20px; background: rgba(25, 39, 60, .88); box-sizing: border-box; }
+        .game-icon { font-size: 2rem; margin-bottom: 16px; }
+        .game-card h2 { margin: 0 0 9px; font-size: 1.35rem; }
+        .game-card p { color: #bdc9dc; line-height: 1.55; margin: 0 0 22px; }
+        .game-link { margin-top: auto; display: inline-block; border-radius: 10px; padding: 11px 16px; color: #102016; background: #9bd18f; font-weight: 700; text-decoration: none; }
+        .game-link:focus-visible, .portal-login:focus-visible, .portal-brand:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
+        .coming-soon { margin-top: auto; border: 1px solid #52627a; color: #bdc9dc; border-radius: 999px; padding: 7px 12px; font-size: .9rem; }
+        @media (max-width: 480px) { .portal-shell { width: min(100% - 28px, 1040px); } .game-card { min-height: 200px; } }
+    </style>
+</head>
+<body class="portal-page">
+    <main class="portal-shell">
+        <nav class="portal-nav" aria-label="Головна навігація">
+            <a class="portal-brand" href="{{ url_for('index') }}">{{ portal_name }}</a>
+            {% if current_user.is_authenticated %}
+            <a class="portal-login" href="{{ url_for('profile') }}">Профіль</a>
+            {% else %}
+            <a class="portal-login" href="{{ url_for('login') }}">Увійти</a>
+            {% endif %}
+        </nav>
+        <header class="portal-hero">
+            <h1>Обери свою гру</h1>
+            <p>Невеликі ігри для перерви, змагання та тренування кмітливості.</p>
+        </header>
+        <section class="game-grid" aria-label="Каталог ігор">
+            <article class="game-card">
+                <div class="game-icon" aria-hidden="true">🟩</div>
+                <h2>Wordle</h2>
+                <p>Відгадай слово за шість спроб. Перевір свої здогадки та позмагайся за місце в таблиці лідерів.</p>
+                <a class="game-link" href="{{ url_for('wordle') }}">Грати в Wordle</a>
+            </article>
+            <article class="game-card" aria-label="Судоку, скоро">
+                <div class="game-icon" aria-hidden="true">🔢</div>
+                <h2>Судоку</h2>
+                <p>Логічні задачі різної складності з’являться тут згодом.</p>
+                <span class="coming-soon">Скоро</span>
+            </article>
+            <article class="game-card" aria-label="Memory, скоро">
+                <div class="game-icon" aria-hidden="true">🧠</div>
+                <h2>Memory</h2>
+                <p>Перевір свою пам’ять у грі на пошук пар карток.</p>
+                <span class="coming-soon">Скоро</span>
+            </article>
+        </section>
+    </main>
+</body>
+</html>

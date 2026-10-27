@@ -26,6 +26,7 @@ def check_guess(guess, target_word):
     return result
 
 @app.route('/')
+@app.route('/wordle')
 def index():
     """Main game page"""
     # Initialize new game

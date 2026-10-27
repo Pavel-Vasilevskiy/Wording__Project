@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Profile - Wordle by Pavlo</title>
+    <title>Профіль — {{ config["PORTAL_NAME"] }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         .profile-container {
@@ -204,7 +204,7 @@
         {% endif %}
         
         <div style="text-align: center; margin-top: 30px;">
-            <a href="{{ url_for('index') }}" class="back-link">Back to Game</a>
+            <a href="{{ url_for('index') }}" class="back-link">До каталогу ігор</a>
         </div>
     </div>
 </body>

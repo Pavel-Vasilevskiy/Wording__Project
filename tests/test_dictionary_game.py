@@ -164,7 +164,7 @@ class DictionaryGameTests(unittest.TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertIsNone(first.get_json()["target_word"])
 
-        page = client.get("/")
+        page = client.get("/wordle")
         self.assertEqual(page.status_code, 200)
         with client.session_transaction() as game_session:
             self.assertEqual(game_session["target_word"], "ARISE")

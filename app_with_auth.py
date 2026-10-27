@@ -14,6 +14,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'wordle_secret_key_2024_with_database')
+app.config['PORTAL_NAME'] = os.getenv('PORTAL_NAME', 'Ігрова кімната')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///wordle_users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -64,10 +65,14 @@ def check_guess(guess, target_word):
 
 @app.route('/')
 def index():
-    """Main game page - requires login"""
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
-    
+    """Show the public game catalog."""
+    return render_template('home.html', portal_name=app.config['PORTAL_NAME'])
+
+
+@app.route('/wordle')
+@login_required
+def wordle():
+    """Main Wordle game page."""
     # Initialize new game if not exists
     if not EN_US_DICTIONARY.contains(session.get('target_word')):
         session['target_word'] = pick_word()
@@ -76,7 +81,7 @@ def index():
         session['game_over'] = False
         session['won'] = False
     
-    return render_template("index.html", user=current_user)
+    return render_template("index.html", user=current_user, portal_name=app.config['PORTAL_NAME'])
 
 @app.route('/game_state')
 @login_required
@@ -103,7 +108,7 @@ def game_state():
 def login():
     """Login page"""
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for('wordle'))
     return render_template('login.html')
 
 @app.route('/auth/google')
@@ -156,8 +161,8 @@ def google_callback():
                 flash(f'Welcome back, {user.name}!', 'success')
             
             login_user(user)
-            print(f"✅ Debug: User logged in successfully, redirecting to index")
-            return redirect(url_for('index'))
+            print(f"✅ Debug: User logged in successfully, redirecting to Wordle")
+            return redirect(url_for('wordle'))
         else:
             print(f"❌ Debug: Invalid user info: {user_info}")
             flash('Failed to get user information from Google.', 'error')
@@ -318,7 +323,7 @@ if __name__ == '__main__':
         print("🔗 Get credentials at: https://console.cloud.google.com/")
     
     # Get port from environment variable (for Fly.io) or default to 8080
-    port = int(os.environ.get('PORT', 8080))
+    port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('FLASK_ENV') != 'production'
     
     if debug:
