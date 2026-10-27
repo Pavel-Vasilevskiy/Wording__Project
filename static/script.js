@@ -5,18 +5,14 @@ let gameReady = false;
 let keyboardState = {}; // Track keyboard key states
 
 // DOM elements
-const guessInput = document.getElementById('guess-input');
-const submitButton = document.getElementById('submit-guess');
 const newGameButton = document.getElementById('new-game');
-const showWordButton = document.getElementById('show-word');
 const gameStatus = document.getElementById('game-status');
 const triesCount = document.getElementById('tries-count');
 const gameBoard = document.getElementById('game-board');
-const currentGuessDiv = document.getElementById('current-guess');
 
-currentGuessDiv.addEventListener('animationend', function(e) {
+gameBoard.addEventListener('animationend', function(e) {
     if (e.animationName === 'guess-row-shake') {
-        currentGuessDiv.classList.remove('shake');
+        e.target.classList.remove('shake');
     }
 });
 
@@ -47,29 +43,46 @@ function initializeGameBoard() {
     }
 }
 
-// Update current guess display
+// Render the unsubmitted guess in the next empty board row.
 function updateCurrentGuess() {
-    const letters = currentGuess.padEnd(5, '_').split('');
+    const rowIndex = Number(triesCount.textContent);
+    const row = gameOver ? null : document.getElementById(`row-${rowIndex}`);
+    document.querySelectorAll('.guess-row').forEach(guessRow => {
+        guessRow.classList.toggle('active', guessRow === row);
+    });
+    if (!row) return;
+
+    const letters = currentGuess.split('');
     for (let i = 0; i < 5; i++) {
-        document.getElementById(`letter${i + 1}`).textContent = letters[i];
+        document.getElementById(`row-${rowIndex}-letter-${i}`).textContent = letters[i] || '';
     }
 }
 
-// Handle input
-guessInput.addEventListener('input', function(e) {
-    currentGuess = e.target.value.toUpperCase();
-    updateCurrentGuess();
-});
+// Physical keyboard uses the same handlers as the on-screen keyboard.
+document.addEventListener('keydown', function(e) {
+    if (!gameReady || gameOver || submissionPending || e.ctrlKey || e.metaKey || e.altKey) return;
 
-// Handle Enter key
-guessInput.addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') {
+    const target = e.target;
+    if (target && typeof target.closest === 'function' &&
+        target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) {
+        return;
+    }
+    // Preserve native activation for focused buttons/links while still letting
+    // physical letters and Backspace work after clicking a game control.
+    if (target && typeof target.closest === 'function' &&
+        target.closest('button, a') && (e.key === 'Enter' || e.key === ' ')) return;
+
+    if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleBackspace();
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
         submitGuess();
+    } else if (/^[a-z]$/i.test(e.key)) {
+        e.preventDefault();
+        handleKeyPress(e.key.toUpperCase());
     }
 });
-
-// Submit guess
-submitButton.addEventListener('click', submitGuess);
 
 function submitGuess() {
     if (!gameReady || submissionPending) return;
@@ -85,8 +98,6 @@ function submitGuess() {
     }
 
     submissionPending = true;
-    submitButton.disabled = true;
-
     fetch('/guess', {
         method: 'POST',
         headers: {
@@ -99,10 +110,13 @@ function submitGuess() {
         if (data.error) {
             gameStatus.textContent = data.error;
             if (data.error === 'Not in word list') {
-                currentGuessDiv.classList.remove('shake');
+                const activeRow = document.getElementById(`row-${Number(triesCount.textContent)}`);
+                if (activeRow) activeRow.classList.remove('shake');
                 // Force a reflow so consecutive invalid guesses restart the animation.
-                void currentGuessDiv.offsetWidth;
-                currentGuessDiv.classList.add('shake');
+                if (activeRow) {
+                    void activeRow.offsetWidth;
+                    activeRow.classList.add('shake');
+                }
             }
             return;
         }
@@ -137,9 +151,8 @@ function submitGuess() {
             gameStatus.textContent = `Try ${data.tries}/6`;
         }
 
-        // Clear input
+        // Clear the active row after an accepted guess.
         currentGuess = '';
-        guessInput.value = '';
         updateCurrentGuess();
     })
     .catch(error => {
@@ -148,7 +161,6 @@ function submitGuess() {
     })
     .finally(() => {
         submissionPending = false;
-        submitButton.disabled = false;
     });
 }
 
@@ -176,14 +188,13 @@ newGameButton.addEventListener('click', function() {
         // Reset game state
         gameOver = false;
         currentGuess = '';
-        guessInput.value = '';
         triesCount.textContent = '0';
         gameStatus.textContent = 'New game started! Good luck!';
         
         // Reset displays
-        updateCurrentGuess();
         initializeGameBoard();
         resetKeyboard();
+        updateCurrentGuess();
         gameReady = true;
     })
     .catch(error => {
@@ -192,17 +203,13 @@ newGameButton.addEventListener('click', function() {
     });
 });
 
-// Show word (for debugging)
-showWordButton.addEventListener('click', function() {
-    fetch('/show_word')
-    .then(response => response.json())
-    .then(data => {
-        gameStatus.textContent = `Current word: ${data.word}`;
-    })
-    .catch(error => {
-        console.error('Error:', error);
-    });
-});
+// Pointer clicks should not leave a game key focused. Keyboard activation
+// keeps its normal focus so Enter/Space remain accessible.
+function releasePointerFocus(event) {
+    if (event.detail > 0 && event.currentTarget && typeof event.currentTarget.blur === 'function') {
+        event.currentTarget.blur();
+    }
+}
 
 // Initialize keyboard
 function initializeKeyboard() {
@@ -216,19 +223,22 @@ function initializeKeyboard() {
     // Add event listeners to keyboard keys
     const keyElements = document.querySelectorAll('.key[data-key]');
     keyElements.forEach(key => {
-        key.addEventListener('click', () => {
+        key.addEventListener('click', (event) => {
             const letter = key.getAttribute('data-key');
             handleKeyPress(letter);
+            releasePointerFocus(event);
         });
     });
     
     // Add event listeners for special keys
-    document.getElementById('key-enter').addEventListener('click', () => {
+    document.getElementById('key-enter').addEventListener('click', (event) => {
         submitGuess();
+        releasePointerFocus(event);
     });
     
-    document.getElementById('key-backspace').addEventListener('click', () => {
+    document.getElementById('key-backspace').addEventListener('click', (event) => {
         handleBackspace();
+        releasePointerFocus(event);
     });
 }
 
@@ -237,8 +247,7 @@ function handleKeyPress(letter) {
     if (!gameReady || gameOver) return;
     
     if (currentGuess.length < 5) {
-        currentGuess += letter;
-        guessInput.value = currentGuess;
+        currentGuess += letter.toUpperCase();
         updateCurrentGuess();
     }
 }
@@ -249,7 +258,6 @@ function handleBackspace() {
     
     if (currentGuess.length > 0) {
         currentGuess = currentGuess.slice(0, -1);
-        guessInput.value = currentGuess;
         updateCurrentGuess();
     }
 }
@@ -406,8 +414,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize the game board on page load
 initializeGameBoard();
 initializeKeyboard();
-guessInput.disabled = true;
-submitButton.disabled = true;
 gameStatus.textContent = 'Loading your game...';
 
 fetch('/game_state')
@@ -425,7 +431,9 @@ fetch('/game_state')
         });
 
         triesCount.textContent = state.tries;
+        currentGuess = '';
         gameOver = state.game_over;
+        updateCurrentGuess();
         if (state.won) {
             gameStatus.textContent = `🎉 Congratulations! You won in ${state.tries} tries!`;
         } else if (state.game_over) {
@@ -437,8 +445,6 @@ fetch('/game_state')
         }
 
         gameReady = true;
-        guessInput.disabled = false;
-        submitButton.disabled = false;
     })
     .catch(error => {
         console.error('Error restoring game:', error);

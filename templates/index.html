@@ -39,6 +39,7 @@
         </div>
         
         <div class="sidebar-actions">
+            <button id="new-game">New Game</button>
             <a href="{{ url_for('profile') }}" class="sidebar-btn">👤 Profile</a>
             <a href="{{ url_for('leaderboard') }}" class="sidebar-btn">🏆 Leaderboard</a>
             <a href="{{ url_for('logout') }}" class="sidebar-btn">🚪 Logout</a>
@@ -52,23 +53,6 @@
         <!-- Game Board -->
         <div id="game-board">
             <!-- Rows will be dynamically created here -->
-        </div>
-        
-        <!-- Current guess display -->
-        <div class="current-guess-container">
-            <div class="current-guess" id="current-guess">
-                <div class="letter-box" id="letter1">_</div>
-                <div class="letter-box" id="letter2">_</div>
-                <div class="letter-box" id="letter3">_</div>
-                <div class="letter-box" id="letter4">_</div>
-                <div class="letter-box" id="letter5">_</div>
-            </div>
-        </div>
-        
-        <!-- Input section -->
-        <div class="input-section">
-            <input type="text" id="guess-input" maxlength="5" placeholder="Enter 5-letter word" autocomplete="off">
-            <button id="submit-guess">Submit Guess</button>
         </div>
         
         <!-- On-screen Keyboard -->
@@ -107,12 +91,6 @@
                 <button class="key" data-key="M">M</button>
                 <button class="key key-backspace" id="key-backspace">⌫</button>
             </div>
-        </div>
-        
-        <!-- Game controls -->
-        <div class="controls">
-            <button id="new-game">New Game</button>
-            <button id="show-word">Show Word</button>
         </div>
         
         <!-- Game status -->

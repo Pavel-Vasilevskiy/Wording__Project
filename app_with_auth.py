@@ -281,12 +281,6 @@ def new_game():
     session['won'] = False
     return jsonify({'message': 'New game started'})
 
-@app.route('/show_word')
-@login_required
-def show_word():
-    """Show the current target word (for debugging)"""
-    return jsonify({'word': session.get('target_word', 'No game active')})
-
 @app.route('/leaderboard')
 @login_required
 def leaderboard():

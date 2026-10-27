@@ -13,16 +13,18 @@ class InvalidGuessAnimationTests(unittest.TestCase):
         cls.template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
     def test_dictionary_error_restarts_shake_on_current_guess_row(self):
-        self.assertIn('id="current-guess"', self.template)
+        self.assertIn('id="game-board"', self.template)
+        self.assertIn("const activeRow = document.getElementById(`row-${Number(triesCount.textContent)}`)", self.script)
         self.assertIn("data.error === 'Not in word list'", self.script)
-        self.assertIn("currentGuessDiv.classList.remove('shake')", self.script)
-        self.assertIn("currentGuessDiv.classList.add('shake')", self.script)
-        self.assertIn("void currentGuessDiv.offsetWidth", self.script)
+        self.assertIn("activeRow.classList.remove('shake')", self.script)
+        self.assertIn("activeRow.classList.add('shake')", self.script)
+        self.assertIn("void activeRow.offsetWidth", self.script)
         self.assertIn("animationend", self.script)
         self.assertIn("e.animationName === 'guess-row-shake'", self.script)
 
     def test_shake_is_short_and_respects_reduced_motion(self):
         self.assertIn("animation: guess-row-shake 400ms ease-in-out", self.styles)
+        self.assertIn(".guess-row.shake", self.styles)
         self.assertIn("@keyframes guess-row-shake", self.styles)
         self.assertIn("@media (prefers-reduced-motion: reduce)", self.styles)
         self.assertIn("animation: none", self.styles)
@@ -31,7 +33,6 @@ class InvalidGuessAnimationTests(unittest.TestCase):
         error_branch = self.script.split("if (data.error) {", 1)[1].split("// Update game board", 1)[0]
         self.assertIn("if (data.error === 'Not in word list')", error_branch)
         self.assertNotIn("currentGuess = ''", error_branch)
-        self.assertNotIn("guessInput.value = ''", error_branch)
 
         network_error_branch = self.script.split(".catch(error => {", 1)[1].split(".finally(() => {", 1)[0]
         self.assertNotIn("shake", network_error_branch)

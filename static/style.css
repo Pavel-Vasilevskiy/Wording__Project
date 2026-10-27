@@ -27,6 +27,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    overflow-y: auto;
     z-index: 1000;
     box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
 }
@@ -95,6 +96,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex-shrink: 0;
 }
 
 .sidebar-btn {
@@ -112,6 +114,12 @@ body {
 .sidebar-btn:hover {
     background: #6aaa64;
     transform: translateY(-1px);
+}
+
+.sidebar-actions #new-game {
+    margin: 0;
+    padding: 12px;
+    font-size: 14px;
 }
 
 /* Main content area */
@@ -275,7 +283,7 @@ body {
     margin-bottom: 5px;
 }
 
-.current-guess.shake {
+.guess-row.shake {
     animation: guess-row-shake 400ms ease-in-out;
 }
 
@@ -286,9 +294,13 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .current-guess.shake {
+    .guess-row.shake {
         animation: none;
     }
+}
+
+.guess-row.active .letter-box {
+    border-color: #565758;
 }
 
 .letter-box {
@@ -324,45 +336,6 @@ body {
     color: white;
 }
 
-/* Current guess display */
-.current-guess-container {
-    margin: 20px 0;
-}
-
-.current-guess {
-    display: flex;
-    justify-content: center;
-    gap: 5px;
-}
-
-/* Input section */
-.input-section {
-    margin: 30px 0;
-}
-
-#guess-input {
-    padding: 15px;
-    font-size: 1.2em;
-    border: 2px solid #3a3a3c;
-    border-radius: 5px;
-    background-color: #121213;
-    color: white;
-    text-align: center;
-    text-transform: uppercase;
-    width: 200px;
-    margin-right: 10px;
-}
-
-#guess-input:focus {
-    outline: none;
-    border-color: #6aaa64;
-}
-
-#guess-input::placeholder {
-    color: #787c7e;
-    text-transform: none;
-}
-
 /* Buttons */
 button {
     padding: 15px 20px;
@@ -385,25 +358,12 @@ button:active {
     background-color: #4a8a44;
 }
 
-#show-word {
-    background-color: #c9b458;
-}
-
-#show-word:hover {
-    background-color: #b9a448;
-}
-
 #new-game {
     background-color: #787c7e;
 }
 
 #new-game:hover {
     background-color: #686c6e;
-}
-
-/* Controls */
-.controls {
-    margin: 20px 0;
 }
 
 /* Game status */
@@ -457,6 +417,11 @@ button:active {
 
 .key:hover {
     background-color: #9ca3a4;
+}
+
+.key:focus-visible {
+    outline: 3px solid #c9b458;
+    outline-offset: 2px;
 }
 
 .key:active {
@@ -537,17 +502,6 @@ button:active {
         width: 45px;
         height: 45px;
         font-size: 1.3em;
-    }
-    
-    /* Input section adjustments */
-    .input-section {
-        margin: 15px 0;
-    }
-    
-    #guess-input {
-        width: 140px;
-        font-size: 1em;
-        padding: 8px;
     }
     
     button {
@@ -668,9 +622,6 @@ button:active {
         margin: 10px 0;
     }
     
-    .controls {
-        margin: 10px 0;
-    }
 }
 
 /* Extra small screens (very small phones) */
@@ -692,16 +643,6 @@ button:active {
     
     .guess-row {
         gap: 3px;
-    }
-    
-    .current-guess {
-        gap: 3px;
-    }
-    
-    #guess-input {
-        width: 120px;
-        font-size: 0.9em;
-        padding: 6px;
     }
     
     .key {

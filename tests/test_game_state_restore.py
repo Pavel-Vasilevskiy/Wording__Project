@@ -133,6 +133,7 @@ class GameStateRestoreTests(unittest.TestCase):
         self.assertIn("state.guesses.forEach((result, rowIndex)", script)
         self.assertIn("updateGameBoard(result, rowIndex)", script)
         self.assertIn("updateKeyboardState(result)", script)
+        self.assertIn("document.getElementById(`row-${rowIndex}-letter-${i}`).textContent = letters[i] || ''", script)
         self.assertIn("gameReady = true", script)
         self.assertIn("if (!gameReady || submissionPending) return", script)
         self.assertIn("Could not load your game. Please reload the page.", script)

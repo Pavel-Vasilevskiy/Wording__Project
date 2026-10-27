@@ -75,7 +75,7 @@ class PortalHomeTests(unittest.TestCase):
         self.assertEqual(client.get("/profile").status_code, 200)
         self.assertEqual(client.get("/leaderboard").status_code, 200)
         self.assertEqual(client.post("/new_game").status_code, 200)
-        self.assertEqual(client.get("/show_word").status_code, 200)
+        self.assertEqual(client.get("/show_word").status_code, 404)
 
     def test_wordle_page_links_to_portal_without_logging_out_or_resetting_game(self):
         user = User(google_id="navigation-test-user", email="navigation@example.test", name="Navigation Tester")
@@ -101,8 +101,16 @@ class PortalHomeTests(unittest.TestCase):
         game = client.get("/wordle")
         self.assertEqual(game.status_code, 200)
         page = game.get_data(as_text=True)
+        sidebar_actions = page.split('<div class="sidebar-actions">', 1)[1].split('</div>', 1)[0]
+        self.assertEqual(page.count('id="new-game"'), 1)
+        self.assertIn('id="new-game"', sidebar_actions)
+        self.assertNotIn('<div class="controls">', page)
+        self.assertNotIn('id="show-word"', page)
+        self.assertNotIn("Show Word", page)
         self.assertIn('href="/" class="portal-game-home"', page)
         self.assertIn("← До всіх ігор", page)
+        self.assertNotIn('id="guess-input"', page)
+        self.assertNotIn('id="submit-guess"', page)
         self.assertNotIn('class="portal-game-home" href="/logout"', page)
 
         before_navigation = client.get("/game_state").get_json()
