@@ -35,18 +35,25 @@ class PortalHomeTests(unittest.TestCase):
         db.session.remove()
         self.context.pop()
 
-    def test_homepage_renders_portal_catalog_and_only_wordle_is_linked(self):
+    def test_homepage_renders_wordle_mode_selector_and_portal_catalog(self):
         app.config["PORTAL_NAME"] = "Тестовий портал"
         response = app.test_client().get("/")
 
         self.assertEqual(response.status_code, 200)
         page = response.get_data(as_text=True)
         self.assertIn("Тестовий портал", page)
-        self.assertIn("Грати в Wordle", page)
+        self.assertIn('<a class="game-link" href="/wordle">Classic Wordle</a>', page)
+        self.assertIn('aria-label="Режими Wordle"', page)
+        self.assertIn('class="game-mode-unavailable" type="button" disabled', page)
+        self.assertIn("PvP Multiplayer", page)
+        self.assertIn("Скоро", page)
+        self.assertNotIn('href="/pvp"', page)
         self.assertIn("Судоку", page)
         self.assertIn("Memory", page)
         self.assertEqual(page.count('class="game-link"'), 1)
         self.assertIn('class="coming-soon"', page)
+        self.assertEqual(page.count('class="game-card"'), 3)
+        self.assertEqual(app.test_client().get("/pvp").status_code, 404)
 
     def test_homepage_is_public_and_wordle_keeps_login_requirement(self):
         client = app.test_client()
