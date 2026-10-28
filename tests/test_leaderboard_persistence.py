@@ -198,7 +198,10 @@ class LeaderboardPersistenceTests(unittest.TestCase):
 
         initialize_database()
 
-        self.assertEqual(set(inspect(db.engine).get_table_names()), {"user", "game_session"})
+        self.assertEqual(
+            set(inspect(db.engine).get_table_names()),
+            {"user", "game_session", "pvp_lobby", "pvp_lobby_member"},
+        )
 
     def test_fly_config_uses_the_persistent_volume_path_in_fra(self):
         fly_config = tomllib.loads((Path(__file__).resolve().parents[1] / "fly.toml").read_text())

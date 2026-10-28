@@ -1,0 +1,1 @@
+"""Isolated PvP lobby functionality."""

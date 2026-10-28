@@ -7,6 +7,8 @@ from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
+from pvp.models import PvPLobby, PvPLobbyMember
+from pvp.routes import pvp_bp
 from word_dictionary import EN_US_DICTIONARY, validate_guess
 
 # Load environment variables
@@ -24,6 +26,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 oauth = OAuth(app)
+app.register_blueprint(pvp_bp)
 
 # Configure Google OAuth
 google = oauth.register(

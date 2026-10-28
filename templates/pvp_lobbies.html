@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <title>PvP Wordle — лобі</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        .pvp-shell { width: min(100% - 36px, 900px); margin: 0 auto; padding: 28px 0 56px; }
+        .pvp-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+        .pvp-nav a, .pvp-button { color: #f8fafc; border: 1px solid #52627a; border-radius: 10px; padding: 10px 14px; text-decoration: none; background: rgba(25,39,60,.88); font: inherit; cursor: pointer; }
+        .pvp-nav a:focus-visible, .pvp-button:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
+        .pvp-panel { margin-top: 28px; padding: clamp(20px, 5vw, 34px); border: 1px solid #34445b; border-radius: 20px; background: rgba(25,39,60,.92); }
+        .pvp-current-lobby { display: grid; justify-items: start; gap: 12px; margin: 18px 0 28px; }
+        .pvp-current-lobby p { margin: 0; }
+        .pvp-create-form { margin: 18px 0 28px; }
+        .pvp-section-title { margin: 0; }
+        h1 { margin-top: 0; }
+        .pvp-muted { color: #bdc9dc; }
+        .pvp-action { background: #9bd18f; color: #102016; border: 0; font-weight: 700; }
+        .pvp-action:hover { background: #b0dfa5; }
+        .pvp-flashes { display: grid; gap: 8px; margin: 18px 0; }
+        .pvp-flash { padding: 11px 14px; border-radius: 10px; background: #263c57; }
+        .pvp-flash-error { background: #5b2c35; }
+        .pvp-flash-success { background: #214a38; }
+        .pvp-list { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 12px; }
+        .pvp-lobby-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px; border: 1px solid #52627a; border-radius: 14px; }
+        .pvp-lobby-row h2 { font-size: 1rem; margin: 0 0 6px; }
+        @media (max-width: 520px) { .pvp-shell { width: min(100% - 28px, 900px); } .pvp-lobby-row { align-items: stretch; flex-direction: column; } .pvp-lobby-row .pvp-button { width: 100%; } }
+    </style>
+</head>
+<body class="pvp-page">
+<main class="pvp-shell">
+    <nav class="pvp-nav" aria-label="Навігація">
+        <a href="{{ url_for('index') }}">← До всіх ігор</a>
+        <a href="{{ url_for('wordle') }}">Classic Wordle</a>
+    </nav>
+    <section class="pvp-panel">
+        <h1>PvP Wordle — лобі</h1>
+        <p class="pvp-muted">Створіть кімнату або приєднайтеся до відкритого лобі. Ігрові раунди з’являться пізніше.</p>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}<div class="pvp-flashes" role="status">{% for category, message in messages %}<div class="pvp-flash pvp-flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+        {% endwith %}
+        {% if my_membership %}
+            <div class="pvp-current-lobby">
+            <p>Ви вже в лобі <strong>{{ my_membership.lobby.leader.name }}</strong>.</p>
+            <a class="pvp-button pvp-action" href="{{ url_for('pvp.lobby_detail', public_id=my_membership.lobby.public_id) }}">Відкрити моє лобі</a>
+            </div>
+        {% else %}
+            <form class="pvp-create-form" method="post" action="{{ url_for('pvp.create_lobby') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="pvp-button pvp-action" type="submit">Створити лобі</button>
+            </form>
+        {% endif %}
+        <h2 class="pvp-section-title">Відкриті лобі</h2>
+        {% if lobbies %}
+            <ul class="pvp-list">
+            {% for lobby in lobbies %}
+                {% set member_count = lobby.memberships|length %}
+                <li class="pvp-lobby-row">
+                    <div><h2>Лідер: {{ lobby.leader.name }}</h2><div class="pvp-muted">{{ member_count }}/{{ max_lobby_size }} гравців · {{ lobby.created_at.strftime('%d.%m.%Y %H:%M') }}</div></div>
+                    {% if my_membership and my_membership.lobby_id == lobby.id %}
+                        <a class="pvp-button" href="{{ url_for('pvp.lobby_detail', public_id=lobby.public_id) }}">Відкрити лобі</a>
+                    {% elif not my_membership and member_count < max_lobby_size %}
+                        <form method="post" action="{{ url_for('pvp.join_lobby', public_id=lobby.public_id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="pvp-button pvp-action" type="submit">Приєднатися</button>
+                        </form>
+                    {% else %}<span class="pvp-muted">{{ member_count }}/{{ max_lobby_size }} · зайнято</span>{% endif %}
+                </li>
+            {% endfor %}
+            </ul>
+        {% else %}<p class="pvp-muted">Поки немає відкритих лобі.</p>{% endif %}
+    </section>
+</main>
+</body>
+</html>

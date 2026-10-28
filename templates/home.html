@@ -24,11 +24,10 @@
         .game-mode-selector-label { color: #bdc9dc; font-size: .85rem; font-weight: 700; }
         .game-link { display: block; border-radius: 10px; padding: 11px 16px; color: #102016; background: #9bd18f; font-weight: 700; text-align: center; text-decoration: none; }
         .game-link:hover { background: #b0dfa5; }
-        .game-mode-unavailable { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 0; padding: 10px 12px; border: 1px solid #52627a; border-radius: 10px; color: #bdc9dc; background: rgba(16, 24, 39, .55); font: inherit; text-align: left; opacity: .78; }
-        .game-mode-unavailable:disabled { cursor: not-allowed; }
-        .game-mode-unavailable:disabled:hover { background: rgba(16, 24, 39, .55); transform: none; }
+        .game-mode-pvp { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #52627a; border-radius: 10px; color: #f8fafc; background: rgba(16, 24, 39, .55); font: inherit; font-weight: 700; text-align: left; text-decoration: none; }
+        .game-mode-pvp:hover { border-color: #91a8c7; background: rgba(31, 47, 70, .9); }
         .game-mode-status { flex: 0 0 auto; border: 1px solid #52627a; border-radius: 999px; padding: 5px 9px; color: #bdc9dc; font-size: .8rem; }
-        .game-link:focus-visible, .game-mode-unavailable:focus-visible, .portal-login:focus-visible, .portal-brand:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
+        .game-link:focus-visible, .game-mode-pvp:focus-visible, .portal-login:focus-visible, .portal-brand:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
         .coming-soon { margin-top: auto; border: 1px solid #52627a; color: #bdc9dc; border-radius: 999px; padding: 7px 12px; font-size: .9rem; }
         @media (max-width: 480px) { .portal-shell { width: min(100% - 28px, 1040px); } .game-card { min-height: 200px; } }
     </style>
@@ -55,10 +54,10 @@
                 <div class="game-mode-selector" role="group" aria-label="Режими Wordle">
                     <span class="game-mode-selector-label">Режим гри</span>
                     <a class="game-link" href="{{ url_for('wordle') }}">Classic Wordle</a>
-                    <button class="game-mode-unavailable" type="button" disabled aria-label="PvP Multiplayer — скоро">
+                    <a class="game-mode-pvp" href="{{ url_for('pvp.lobby_list') }}">
                         <span>PvP Multiplayer</span>
-                        <span class="game-mode-status">Скоро</span>
-                    </button>
+                        <span class="game-mode-status">Лобі</span>
+                    </a>
                 </div>
             </article>
             <article class="game-card" aria-label="Судоку, скоро">

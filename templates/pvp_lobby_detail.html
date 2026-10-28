@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <title>PvP Wordle — лобі</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        .pvp-shell { width: min(100% - 36px, 760px); margin: 0 auto; padding: 28px 0 56px; }
+        .pvp-link { display: inline-block; color: #f8fafc; border: 1px solid #52627a; border-radius: 10px; padding: 10px 14px; text-decoration: none; background: rgba(25,39,60,.88); font: inherit; cursor: pointer; }
+        .pvp-return-form { margin: 0; }
+        .pvp-link:focus-visible, .pvp-button:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
+        .pvp-panel { margin-top: 28px; padding: clamp(20px, 5vw, 34px); border: 1px solid #34445b; border-radius: 20px; background: rgba(25,39,60,.92); }
+        h1 { margin-top: 0; }
+        .pvp-muted { color: #bdc9dc; }
+        .pvp-list { list-style: none; padding: 0; display: grid; gap: 10px; }
+        .pvp-list li { padding: 13px; border: 1px solid #52627a; border-radius: 12px; }
+        .pvp-leader { color: #a9df9c; font-weight: 700; }
+        .pvp-sync-message { min-height: 1.4em; }
+        .pvp-unavailable { padding: 12px; border-radius: 10px; background: #5b2c35; }
+        @media (max-width: 520px) { .pvp-shell { width: min(100% - 28px, 760px); } }
+    </style>
+</head>
+<body class="pvp-page">
+<main class="pvp-shell">
+    <form class="pvp-return-form" method="post" action="{{ url_for('pvp.leave_lobby', public_id=lobby.public_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="pvp-link" type="submit">← До списку лобі</button>
+    </form>
+    <section class="pvp-panel" data-pvp-lobby-state data-state-url="{{ url_for('pvp.lobby_state', public_id=lobby.public_id) }}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}<div role="status">{% for category, message in messages %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
+        {% endwith %}
+        <h1>Лобі {{ lobby.public_id[:8]|upper }}</h1>
+        <p class="pvp-muted"><span id="pvp-lobby-status">Відкрите лобі</span> · <span id="pvp-member-count">{{ lobby.memberships|length }}/{{ max_lobby_size }} гравців</span></p>
+        <p>Лідер: <strong class="pvp-leader" id="pvp-lobby-leader">{{ lobby.leader.name }}</strong></p>
+        <p class="pvp-muted pvp-sync-message" id="pvp-sync-message" role="status" aria-live="polite"></p>
+        <div class="pvp-unavailable" id="pvp-unavailable-message" role="status" aria-live="polite" hidden></div>
+        <a class="pvp-link" id="pvp-lobbies-link" href="{{ url_for('pvp.lobby_list') }}" hidden>Повернутися до списку лобі</a>
+        <h2>Учасники</h2>
+        <ul class="pvp-list" id="pvp-members" aria-live="polite">
+            {% for membership in lobby.memberships %}
+                <li>{% if membership.user_id == lobby.leader_id %}<span class="pvp-leader">{{ membership.user.name }} · Лідер</span>{% else %}{{ membership.user.name }}{% endif %}</li>
+            {% endfor %}
+        </ul>
+    </section>
+</main>
+<script src="{{ url_for('static', filename='pvp_lobby.js') }}" defer></script>
+</body>
+</html>
