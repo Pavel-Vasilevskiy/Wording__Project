@@ -12,6 +12,7 @@ from pvp.models import (
     PvPLobbyKickNotice,
     PvPLobbyMember,
     PvPMatch,
+    PvPMatchAttempt,
     PvPMatchPlayer,
     PvPMatchRound,
 )

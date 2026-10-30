@@ -11,14 +11,36 @@
         body { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
         .match-shell { width: min(100% - 32px, 980px); margin: 0 auto; padding: 24px 0 48px; }
         .match-header, .match-status-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .match-header-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
         h1 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.2rem); }
         h2 { font-size: 1.15rem; }
         .match-link, .match-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border: 1px solid #52627a; border-radius: 10px; color: #f8fafc; background: rgba(25,39,60,.88); text-decoration: none; font: inherit; }
+        .match-leave-button { border-color: #78505b; background: rgba(70,39,50,.85); cursor: pointer; }
+        .match-button:focus-visible, .match-link:focus-visible { outline: 3px solid #d9edaa; outline-offset: 2px; }
+        .match-flash { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; background: rgba(25,39,60,.92); }
+        .match-flash.error { border: 1px solid #a75a67; }
+        .match-flash.success, .match-flash.info { border: 1px solid #56885a; }
         .match-panel { margin-top: 22px; padding: clamp(18px, 4vw, 30px); border: 1px solid #34445b; border-radius: 18px; background: rgba(25,39,60,.92); }
         .match-muted { color: #bdc9dc; }
         .match-countdown { display: grid; place-items: center; min-height: 220px; text-align: center; }
         .countdown-number { margin: 12px 0; color: #a9df9c; font-size: clamp(5rem, 23vw, 10rem); line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
         .match-word { display: flex; justify-content: center; gap: 8px; margin: 24px 0; font-size: clamp(2.5rem, 12vw, 4.5rem); letter-spacing: .18em; font-weight: 800; }
+        .match-board { display: grid; gap: 6px; width: min(100%, 340px); margin: 24px auto 18px; }
+        .guess-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+        .guess-tile { display: grid; place-items: center; aspect-ratio: 1; border: 2px solid #52627a; border-radius: 5px; color: #f8fafc; font-size: clamp(1.35rem, 7vw, 2rem); font-weight: 800; text-transform: uppercase; }
+        .guess-tile.filled { border-color: #9aaac1; }
+        .guess-tile.green { border-color: #538d55; background: #538d55; }
+        .guess-tile.yellow { border-color: #b69b31; background: #b69b31; }
+        .guess-tile.gray { border-color: #536071; background: #536071; }
+        .guess-tile.reveal { animation: match-tile-reveal 360ms ease both; }
+        @keyframes match-tile-reveal { 0% { transform: rotateX(0); } 50% { transform: rotateX(90deg); } 100% { transform: rotateX(0); } }
+        .match-keyboard { display: grid; gap: 7px; width: min(100%, 560px); margin: 0 auto; }
+        .key-row { display: flex; justify-content: center; gap: 5px; }
+        .match-key { min-width: 0; flex: 1; min-height: 48px; padding: 6px 3px; border: 0; border-radius: 5px; color: #f8fafc; background: #52627a; font: 700 .95rem Arial, sans-serif; cursor: pointer; }
+        .match-key.wide { flex: 1.55; font-size: .75rem; }
+        .match-key:disabled { opacity: .55; cursor: not-allowed; }
+        .match-key:focus-visible { outline: 3px solid #d9edaa; outline-offset: 2px; }
+        .guess-feedback { min-height: 1.5em; margin: 10px 0; text-align: center; font-weight: 700; }
         .match-clock { font-size: clamp(1.8rem, 7vw, 3rem); font-variant-numeric: tabular-nums; font-weight: 700; }
         .player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; margin: 14px 0 0; padding: 0; list-style: none; }
         .player-card { min-width: 0; padding: 16px; border: 1px solid #52627a; border-radius: 14px; background: rgba(16,24,39,.56); }
@@ -37,18 +59,32 @@
         .progress-cell.gray { border-color: #536071; background: #536071; }
         .player-round, .player-result { margin: 11px 0 0; font-size: .92rem; }
         .match-message { min-height: 1.3em; }
-        @media (max-width: 520px) { .match-shell { width: min(100% - 24px, 980px); } .match-panel { border-radius: 14px; } .player-card { padding: 13px; } }
-        @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+        @media (max-width: 520px) { .match-shell { width: min(100% - 24px, 980px); } .match-panel { border-radius: 14px; } .player-card { padding: 13px; } .match-key { min-height: 43px; font-size: .82rem; } .match-key.wide { font-size: .66rem; } .guess-tile { border-width: 1px; } }
+        @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
     </style>
 </head>
 <body>
 <main class="match-shell" id="pvp-match"
       data-state-url="{{ url_for('pvp.match_state', public_id=match.public_id) }}"
+      data-guess-url="{{ url_for('pvp.submit_match_guess', public_id=match.public_id) }}"
       data-csrf-token="{{ csrf_token }}">
     <header class="match-header">
         <h1>PvP Wordle</h1>
-        <a class="match-link" href="{{ url_for('index') }}">← До всіх ігор</a>
+        <div class="match-header-actions">
+            <form id="match-leave-form" method="post" action="{{ url_for('pvp.leave_match', public_id=match.public_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="match-button match-leave-button" type="submit">Покинути матч</button>
+            </form>
+            <a class="match-link" href="{{ url_for('index') }}">← До всіх ігор</a>
+        </div>
     </header>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="match-flashes" role="status" aria-live="polite">
+        {% for category, message in messages %}<p class="match-flash {{ category }}">{{ message }}</p>{% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
     <section class="match-panel">
         <div class="match-status-line">
             <strong id="match-status">Підключення до матчу…</strong>
@@ -69,6 +105,9 @@
             <div class="match-word" id="match-word" aria-label="Поточне слово"></div>
             <div class="match-clock" id="match-clock" aria-live="off" hidden></div>
             <p class="match-muted" id="match-mode-note"></p>
+            <div class="match-board" id="match-board" role="group" aria-label="Ваші спроби"></div>
+            <p class="guess-feedback" id="guess-feedback" role="status" aria-live="polite"></p>
+            <div class="match-keyboard" id="match-keyboard" aria-label="Екранна клавіатура"></div>
         </section>
     </section>
     <section class="match-panel" aria-labelledby="players-title">

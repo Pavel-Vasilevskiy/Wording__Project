@@ -18,6 +18,10 @@ _ADDITIVE_COLUMNS = {
         # Existing participants receive a fresh heartbeat grace window at upgrade.
         "last_seen_at": "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'",
     },
+    "pvp_match_player": {
+        "score": "INTEGER NOT NULL DEFAULT 0",
+        "score_frozen_at": "DATETIME",
+    },
 }
 
 

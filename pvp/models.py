@@ -1,7 +1,8 @@
 import secrets
 from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.orm import validates
 
 from models import db
 
@@ -105,6 +106,7 @@ class PvPMatchRound(db.Model):
     deadline_at = db.Column(db.DateTime)
 
     match = db.relationship("PvPMatch", back_populates="rounds")
+    attempts = db.relationship("PvPMatchAttempt", back_populates="round", cascade="all, delete-orphan")
 
 
 class PvPMatchPlayer(db.Model):
@@ -122,9 +124,62 @@ class PvPMatchPlayer(db.Model):
     current_round = db.Column(db.Integer, nullable=False, default=1)
     attempts_used = db.Column(db.Integer, nullable=False, default=0)
     has_solved = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
+    score = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    score_frozen_at = db.Column(db.DateTime)
     # Progress stores only color rows; submitted text belongs in a private future field/API.
     progress = db.Column(db.Text, nullable=False, default="[]", server_default=text("'[]'"))
     round_history = db.Column(db.Text, nullable=False, default="[]", server_default=text("'[]'"))
 
     match = db.relationship("PvPMatch", back_populates="players")
     user = db.relationship("User")
+    attempts = db.relationship("PvPMatchAttempt", back_populates="player", cascade="all, delete-orphan")
+
+    def award_score(self, points):
+        """Apply a future score award only while this player is still participating."""
+        if self.status == "left" or self.score_frozen_at is not None:
+            raise ValueError("A player who left the match cannot receive more score")
+        if not isinstance(points, int):
+            raise ValueError("Score awards must be integers")
+        self.score += points
+
+    @validates("score")
+    def _validate_score_update(self, _attribute, value):
+        if (self.status == "left" or self.score_frozen_at is not None) and value != self.score:
+            raise ValueError("A frozen match score cannot be changed")
+        return value
+
+
+@event.listens_for(PvPMatchPlayer, "before_update")
+def _reject_score_change_after_leave(_mapper, _connection, player):
+    state = inspect(player)
+    if not state.attrs.score.history.has_changes():
+        return
+    previous_freeze = state.attrs.score_frozen_at.history.deleted
+    was_frozen = bool(previous_freeze and previous_freeze[0] is not None)
+    is_being_frozen_as_left = player.status == "left" and player.score_frozen_at is not None
+    if was_frozen or is_being_frozen_as_left:
+        raise ValueError("A frozen match score cannot be changed")
+
+
+class PvPMatchAttempt(db.Model):
+    """Private submitted guess and server-computed result for one player and round."""
+
+    __tablename__ = "pvp_match_attempt"
+    __table_args__ = (
+        db.UniqueConstraint("match_id", "player_id", "round_id", "attempt_number", name="uq_pvp_attempt_number"),
+        db.UniqueConstraint("match_id", "player_id", "request_id", name="uq_pvp_attempt_request"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, db.ForeignKey("pvp_match.id", ondelete="CASCADE"), nullable=False, index=True)
+    player_id = db.Column(db.Integer, db.ForeignKey("pvp_match_player.id", ondelete="CASCADE"), nullable=False, index=True)
+    round_id = db.Column(db.Integer, db.ForeignKey("pvp_match_round.id", ondelete="CASCADE"), nullable=False, index=True)
+    attempt_number = db.Column(db.Integer, nullable=False)
+    request_id = db.Column(db.String(36), nullable=False)
+    guess = db.Column(db.String(5), nullable=False)
+    colors = db.Column(db.Text, nullable=False)
+    is_correct = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
+    submitted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    player = db.relationship("PvPMatchPlayer", back_populates="attempts")
+    round = db.relationship("PvPMatchRound", back_populates="attempts")

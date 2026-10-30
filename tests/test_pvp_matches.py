@@ -2,7 +2,10 @@ import json
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from unittest.mock import patch
+from uuid import uuid4
 
 from flask import g
 from app_with_auth import app
@@ -12,6 +15,7 @@ from pvp.models import (
     PvPLobby,
     PvPLobbyMember,
     PvPMatch,
+    PvPMatchAttempt,
     PvPMatchPlayer,
     PvPMatchRound,
 )
@@ -114,6 +118,25 @@ class PvPMatchTests(unittest.TestCase):
         response = self.start(clients[0], lobby, now)
         self.assertEqual(response.status_code, 302)
         return lobby, clients, now
+
+    def start_first_round(self, match, client, now=None):
+        due = match.scheduled_start_at
+        with patch("pvp.routes._utcnow", return_value=now or due):
+            response = self.post_existing(client, f"/pvp/match/{match.public_id}/state")
+        self.assertEqual(response.status_code, 200)
+        return response.get_json()
+
+    def guess(self, client, match, word, request_id=None, **extra):
+        return self.post_existing(
+            client,
+            f"/pvp/match/{match.public_id}/guess",
+            guess=word,
+            request_id=request_id or str(uuid4()),
+            **extra,
+        )
+
+    def leave_match(self, client, match):
+        return self.post_existing(client, f"/pvp/match/{match.public_id}/leave")
 
     def test_leader_creates_single_countdown_match_with_unique_dictionary_sequence(self):
         lobby, clients, now = self.create_match(words=10)
@@ -265,6 +288,16 @@ class PvPMatchTests(unittest.TestCase):
         player.progress = json.dumps([["green", "yellow", "gray", "green", "gray"]])
         player.attempts_used = 1
         player.last_seen_at = datetime.utcnow() - timedelta(seconds=OFFLINE_AFTER_SECONDS + 1)
+        db.session.add(PvPMatchAttempt(
+            match_id=match.id,
+            player=player,
+            round=match.rounds[0],
+            attempt_number=1,
+            request_id=str(uuid4()),
+            guess="CRANE",
+            colors=json.dumps(["green", "yellow", "gray", "green", "gray"]),
+            submitted_at=datetime.utcnow(),
+        ))
         db.session.commit()
         cleanup_stale_lobbies(now=datetime.utcnow() + timedelta(seconds=OFFLINE_AFTER_SECONDS + 2))
         db.session.commit()
@@ -292,6 +325,8 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(client.get(f"/pvp/match/{match.public_id}").status_code, 404)
         self.assertEqual(client.get(f"/pvp/match/{match.public_id}/state").status_code, 404)
         self.assertEqual(client.post(f"/pvp/match/{match.public_id}/state").status_code, 400)
+        denied_guess = self.post(client, f"/pvp/match/{match.public_id}/guess", guess="array", request_id=str(uuid4()))
+        self.assertEqual(denied_guess.status_code, 404)
 
     def test_progress_parser_never_returns_guess_text_or_invalid_rows(self):
         raw = json.dumps([
@@ -301,6 +336,316 @@ class PvPMatchTests(unittest.TestCase):
             "crane",
         ])
         self.assertEqual(safe_progress_rows(raw), [["green", "yellow", "gray", "gray", "green"]])
+
+    def test_correct_guess_is_saved_and_completes_only_that_player(self):
+        lobby, clients, _ = self.create_match(leader_num=23, guest_nums=(24,))
+        match = PvPMatch.query.one()
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        round_.word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+
+        response = self.guess(clients[0], match, "CIGAR", colors="gray,gray,gray,gray,gray", attempt_number="999")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["attempt_number"], 1)
+        self.assertEqual(payload["colors"], ["green"] * 5)
+        self.assertEqual(payload["my_status"], "solved")
+        attempt = PvPMatchAttempt.query.one()
+        self.assertEqual((attempt.guess, attempt.attempt_number, attempt.is_correct), ("CIGAR", 1, True))
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=lobby.leader_id).one()
+        self.assertEqual((player.attempts_used, player.status, player.has_solved), (1, "solved", True))
+        self.assertEqual(round_.status, "in_progress")  # The other player still has the round.
+        rejected = self.guess(clients[0], match, "array")
+        self.assertEqual(rejected.status_code, 409)
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=player.id).count(), 1)
+        guest_result = self.guess(clients[1], match, "CIGAR")
+        self.assertEqual(guest_result.status_code, 200)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().status, "completed")
+        self.assertEqual(match.current_round, 1)  # No automatic transition to the next word.
+
+    def test_duplicate_letters_are_scored_using_remaining_answer_counts(self):
+        _, clients, _ = self.create_match(leader_num=25, guest_nums=(26,))
+        match = PvPMatch.query.one()
+        PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+
+        response = self.guess(clients[0], match, "array")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["colors"], ["gray", "yellow", "gray", "green", "gray"])
+
+    def test_invalid_words_are_not_saved_or_counted_and_guess_length_is_enforced(self):
+        _, clients, _ = self.create_match(leader_num=27, guest_nums=(28,))
+        match = PvPMatch.query.one()
+        self.start_first_round(match, clients[0])
+
+        for guess, message in (("zzzzz", "Not in word list"), ("abc", "5 letters")):
+            response = self.guess(clients[0], match, guess)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(message, response.get_json()["message"])
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        self.assertEqual(player.attempts_used, 0)
+        self.assertEqual(PvPMatchAttempt.query.count(), 0)
+
+    def test_idempotent_retry_returns_saved_result_and_conflicting_reuse_is_rejected(self):
+        _, clients, _ = self.create_match(leader_num=29, guest_nums=(30,))
+        match = PvPMatch.query.one()
+        PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        request_id = str(uuid4())
+
+        first = self.guess(clients[0], match, "array", request_id)
+        retry = self.guess(clients[0], match, "array", request_id)
+        conflict = self.guess(clients[0], match, "crane", request_id)
+        self.assertEqual(first.status_code, 200)
+        self.assertFalse(first.get_json()["duplicate"])
+        self.assertEqual(retry.status_code, 200)
+        self.assertTrue(retry.get_json()["duplicate"])
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(PvPMatchAttempt.query.count(), 1)
+
+    def test_public_progress_exposes_colors_but_only_the_current_player_sees_guess_text(self):
+        lobby, clients, _ = self.create_match(leader_num=31, guest_nums=(32,))
+        match = PvPMatch.query.one()
+        PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        self.guess(clients[0], match, "array")
+
+        other_state = clients[1].get(f"/pvp/match/{match.public_id}/state").get_json()
+        public_player = next(item for item in other_state["players"] if item["name"] == "Match Player 31")
+        self.assertEqual(public_player["progress"], [["gray", "yellow", "gray", "green", "gray"]])
+        self.assertNotIn("guess", public_player)
+        self.assertNotIn("array", json.dumps(public_player).lower())
+        self.assertNotIn("array", json.dumps(other_state["players"]).lower())
+        own_state = clients[0].get(f"/pvp/match/{match.public_id}/state").get_json()
+        self.assertEqual(own_state["my_attempts"][0]["guess"], "ARRAY")
+        self.assertEqual(own_state["my_attempts"][0]["colors"], public_player["progress"][0])
+        self.assertEqual(clients[0].get(f"/pvp/match/{match.public_id}").status_code, 200)
+
+    def test_six_failed_guesses_end_player_round_and_seventh_is_blocked(self):
+        _, clients, _ = self.create_match(leader_num=33, guest_nums=(34,))
+        match = PvPMatch.query.one()
+        PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+
+        for guess in ("array", "crane", "apple", "adore", "agent", "other"):
+            response = self.guess(clients[0], match, guess)
+            self.assertEqual(response.status_code, 200, guess)
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        self.assertEqual((player.attempts_used, player.status), (6, "failed"))
+        self.assertEqual(self.guess(clients[0], match, "abbey").status_code, 409)
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=player.id).count(), 6)
+
+    def test_timer_deadline_rejects_guess_and_marks_unfinished_player_expired(self):
+        _, clients, _ = self.create_match(leader_num=35, guest_nums=(36,))
+        match = PvPMatch.query.one()
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        round_.word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        deadline = round_.deadline_at
+        with patch("pvp.routes._utcnow", return_value=deadline):
+            response = self.guess(clients[0], match, "array")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"], "round_expired")
+        self.assertEqual(PvPMatchAttempt.query.count(), 0)
+        self.assertEqual(round_.status, "expired")
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        self.assertEqual(player.status, "expired")
+
+    def test_no_time_limit_accepts_valid_guess_without_any_deadline(self):
+        _, clients, _ = self.create_match(leader_num=39, guest_nums=(40,), mode="no_limit")
+        match = PvPMatch.query.one()
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        round_.word = "cigar"
+        db.session.commit()
+        much_later = match.scheduled_start_at + timedelta(days=100)
+        self.start_first_round(match, clients[0], much_later)
+        self.assertIsNone(round_.deadline_at)
+        with patch("pvp.routes._utcnow", return_value=much_later):
+            response = self.guess(clients[0], match, "array")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PvPMatchAttempt.query.count(), 1)
+
+    def test_two_simultaneous_guesses_cannot_exceed_six_attempt_limit(self):
+        _, clients, _ = self.create_match(leader_num=37, guest_nums=(38,))
+        match = PvPMatch.query.one()
+        PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        for guess in ("array", "crane", "apple", "adore", "agent"):
+            self.assertEqual(self.guess(clients[0], match, guess).status_code, 200)
+
+        user_id = match.players[0].user_id
+        concurrent_client = app.test_client()
+        self.login(concurrent_client, db.session.get(User, user_id))
+        self.csrf(concurrent_client)
+        clients[0].get("/pvp/")
+        with clients[0].session_transaction() as session_one:
+            token_one = session_one["pvp_csrf_token"]
+        with concurrent_client.session_transaction() as session_two:
+            token_two = session_two["pvp_csrf_token"]
+        barrier = Barrier(2)
+
+        def send(client, token, guess):
+            barrier.wait(timeout=5)
+            return client.post(
+                f"/pvp/match/{match.public_id}/guess",
+                data={"csrf_token": token, "request_id": str(uuid4()), "guess": guess},
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(
+                lambda args: send(*args),
+                ((clients[0], token_one, "other"), (concurrent_client, token_two, "abbey")),
+            ))
+        self.assertEqual(sorted(results), [200, 409])
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=match.players[0].id).count(), 6)
+
+    def test_leave_is_available_in_all_match_and_round_states_and_is_idempotent(self):
+        states = ("countdown", "in_progress", "round_completed", "round_expired", "completed")
+        for index, target_state in enumerate(states):
+            with self.subTest(state=target_state):
+                # Each scenario needs an isolated roster; setUp only runs once for the outer test.
+                db.session.remove()
+                db.drop_all()
+                db.create_all()
+                leader_number = 60 + index * 2
+                lobby, clients, _ = self.create_match(
+                    leader_num=leader_number, guest_nums=(leader_number + 1,)
+                )
+                match = PvPMatch.query.one()
+                player = PvPMatchPlayer.query.filter_by(
+                    match_id=match.id, user_id=lobby.leader_id
+                ).one()
+                player.score = 12 + index
+                db.session.commit()
+                round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+                if target_state != "countdown":
+                    self.start_first_round(match, clients[0])
+                if target_state == "round_completed":
+                    round_.status = "completed"
+                elif target_state == "round_expired":
+                    round_.status = "expired"
+                elif target_state == "completed":
+                    match.status = "completed"
+                    match.completed_at = datetime.utcnow()
+                db.session.commit()
+
+                with patch("pvp.routes._utcnow", return_value=datetime.utcnow()):
+                    response = self.leave_match(clients[0], match)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.headers["Location"], "/pvp/")
+                db.session.refresh(player)
+                frozen_at = player.score_frozen_at
+                self.assertEqual(player.status, "left")
+                self.assertEqual(player.score, 12 + index)
+                self.assertIsNotNone(frozen_at)
+                self.assertIsNone(PvPLobbyMember.query.filter_by(
+                    lobby_id=lobby.id, user_id=player.user_id
+                ).first())
+                self.assertIsNotNone(db.session.get(PvPMatchPlayer, player.id))
+                self.assertIsNotNone(db.session.get(PvPLobby, lobby.id))
+
+                repeated = self.leave_match(clients[0], match)
+                db.session.refresh(player)
+                self.assertEqual(repeated.status_code, 302)
+                self.assertEqual(player.score_frozen_at, frozen_at)
+                self.assertEqual(player.score, 12 + index)
+                with self.assertRaises(ValueError):
+                    player.award_score(1)
+                with self.assertRaises(ValueError):
+                    player.score = player.score + 1
+
+    def test_exit_keeps_attempt_history_other_players_and_finishes_round_without_left_player(self):
+        lobby, clients, _ = self.create_match(leader_num=72, guest_nums=(73,))
+        match = PvPMatch.query.one()
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        round_.word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        saved_guess = self.guess(clients[0], match, "array")
+        self.assertEqual(saved_guess.status_code, 200)
+        # Resolve the other member through the fixed match roster, independent of mutable lobby membership.
+        leaving_player = PvPMatchPlayer.query.filter_by(
+            match_id=match.id, user_id=lobby.leader_id
+        ).one()
+        remaining_player = next(item for item in match.players if item.user_id != leaving_player.user_id)
+        remaining_client = clients[1]
+        solved = self.guess(remaining_client, match, "CIGAR")
+        self.assertEqual(solved.status_code, 200)
+        attempt_count = PvPMatchAttempt.query.filter_by(player_id=leaving_player.id).count()
+        remaining_attempt_count = PvPMatchAttempt.query.filter_by(player_id=remaining_player.id).count()
+        old_score = remaining_player.score
+
+        exit_response = self.leave_match(clients[0], match)
+        self.assertEqual(exit_response.status_code, 302)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().status, "completed")
+        db.session.refresh(remaining_player)
+        self.assertEqual(remaining_player.status, "solved")
+        self.assertEqual(remaining_player.score, old_score)
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=leaving_player.id).count(), attempt_count)
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=remaining_player.id).count(), remaining_attempt_count)
+        self.assertIsNotNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=remaining_player.user_id).first())
+        public_state = self.post_existing(remaining_client, f"/pvp/match/{match.public_id}/state").get_json()
+        left_public = next(item for item in public_state["players"] if item["name"] == "Match Player 72")
+        self.assertEqual(left_public["round_status"], "left")
+        self.assertFalse(left_public["is_online"])
+
+    def test_left_player_old_tabs_cannot_refresh_presence_or_submit_after_exit(self):
+        _, clients, _ = self.create_match(leader_num=74, guest_nums=(75,))
+        match = PvPMatch.query.one()
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        self.leave_match(clients[0], match)
+        db.session.refresh(player)
+        last_seen = player.last_seen_at
+
+        heartbeat = self.post_existing(clients[0], f"/pvp/match/{match.public_id}/state")
+        self.assertEqual(heartbeat.status_code, 410)
+        self.assertEqual(heartbeat.get_json()["error"], "match_left")
+        guess = self.guess(clients[0], match, "array")
+        self.assertEqual(guess.status_code, 409)
+        self.assertEqual(guess.get_json()["error"], "player_left")
+        db.session.refresh(player)
+        self.assertEqual(player.status, "left")
+        self.assertEqual(player.last_seen_at, last_seen)
+        self.assertEqual(clients[0].get(f"/pvp/match/{match.public_id}").headers["Location"], "/pvp/")
+
+    def test_leave_releases_user_to_create_or_join_another_lobby_without_old_match_redirect(self):
+        old_lobby, clients, _ = self.create_match(leader_num=76, guest_nums=(77,))
+        old_match = PvPMatch.query.one()
+        self.leave_match(clients[0], old_match)
+        self.assertEqual(clients[0].get("/pvp/").status_code, 200)
+        created = self.post_existing(clients[0], "/pvp/create")
+        self.assertEqual(created.status_code, 302)
+        new_lobby = PvPLobbyMember.query.filter_by(user_id=old_lobby.leader_id).one().lobby
+        self.assertNotEqual(new_lobby.id, old_lobby.id)
+        self.assertIsNotNone(db.session.get(PvPMatch, old_match.id))
+        self.post_existing(clients[0], f"/pvp/{new_lobby.public_id}/leave")
+
+        joiner = self.create_user(78)
+        join_client = app.test_client()
+        self.login(join_client, joiner)
+        joined_create = self.post(join_client, "/pvp/create")
+        self.assertEqual(joined_create.status_code, 302)
+        join_lobby = PvPLobbyMember.query.filter_by(user_id=joiner.id).one().lobby
+        self.leave_match(clients[0], old_match)
+        joined = self.post_existing(clients[0], f"/pvp/{join_lobby.public_id}/join")
+        self.assertEqual(joined.status_code, 302)
+        self.assertIsNotNone(PvPLobbyMember.query.filter_by(lobby_id=join_lobby.id, user_id=old_lobby.leader_id).first())
+
+    def test_match_page_contains_csrf_protected_exit_form(self):
+        _, clients, _ = self.create_match(leader_num=79, guest_nums=(80,))
+        match = PvPMatch.query.one()
+        page = clients[0].get(f"/pvp/match/{match.public_id}")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Покинути матч".encode(), page.data)
+        self.assertIn(f"/pvp/match/{match.public_id}/leave".encode(), page.data)
+        self.assertIn(b'name="csrf_token"', page.data)
 
 
 if __name__ == "__main__":

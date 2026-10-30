@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import json
 import logging
 import re
 import secrets
@@ -19,6 +20,7 @@ from flask import (
 )
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import joinedload, selectinload
 
 from models import db
 from pvp.models import (
@@ -26,6 +28,7 @@ from pvp.models import (
     PvPLobbyKickNotice,
     PvPLobbyMember,
     PvPMatch,
+    PvPMatchAttempt,
     PvPMatchPlayer,
     PvPMatchRound,
 )
@@ -33,6 +36,10 @@ from pvp.match_logic import (
     COUNTDOWN_SECONDS,
     advance_match_clock,
     choose_word_sequence,
+    complete_round_if_all_players_finished,
+    evaluate_guess,
+    expire_unfinished_players,
+    safe_color_row,
     safe_progress_rows,
     seconds_remaining,
 )
@@ -42,7 +49,7 @@ from pvp.presence import (
     is_online,
     mark_member_online,
 )
-from word_dictionary import EN_US_DICTIONARY
+from word_dictionary import EN_US_DICTIONARY, validate_guess
 
 
 pvp_bp = Blueprint("pvp", __name__, url_prefix="/pvp")
@@ -205,17 +212,40 @@ def _match_state_payload(match, current_player, now):
 
     players = []
     for player in match.players:
-        online = is_online(player, now)
+        online = player.status != "left" and is_online(player, now)
+        round_status_for_player = player.status
+        if round_status_for_player == "active" and round_status == "expired":
+            round_status_for_player = "expired"
+        player_attempts = sorted(
+            (attempt for attempt in player.attempts if attempt.round_id == (current_round.id if current_round else None)),
+            key=lambda attempt: attempt.attempt_number,
+        )
+        color_rows = []
+        for attempt in player_attempts:
+            colors = safe_color_row(attempt.colors)
+            if colors is not None:
+                color_rows.append(colors)
         players.append({
             "name": player.user.name,
             "avatar": player.user.picture,
             "is_online": online,
-            "status": "solved" if player.has_solved else ("playing" if online else "offline"),
+            "status": round_status_for_player,
+            "round_status": round_status_for_player,
             "current_round": player.current_round,
             "attempts_used": player.attempts_used,
             "has_solved": bool(player.has_solved),
-            "progress": safe_progress_rows(player.progress),
+            "progress": color_rows,
         })
+
+    own_attempts = sorted(
+        (attempt for attempt in current_player.attempts if attempt.round_id == (current_round.id if current_round else None)),
+        key=lambda attempt: attempt.attempt_number,
+    )
+    own_color_rows = []
+    for attempt in own_attempts:
+        colors = safe_color_row(attempt.colors)
+        if colors is not None:
+            own_color_rows.append(colors)
 
     reveal_first_word = match.status == "in_progress" and current_round is not None
     return {
@@ -243,9 +273,21 @@ def _match_state_payload(match, current_player, now):
         },
         "player_count": len(match.players),
         "players": players,
-        "my_progress": safe_progress_rows(current_player.progress),
+        "my_progress": own_color_rows,
+        "my_attempts": [
+            {
+                "attempt_number": attempt.attempt_number,
+                "request_id": attempt.request_id,
+                "guess": attempt.guess,
+                "colors": safe_color_row(attempt.colors) or [],
+                "is_correct": bool(attempt.is_correct),
+                "submitted_at": _iso_utc(attempt.submitted_at),
+            }
+            for attempt in own_attempts
+        ],
         "my_attempts_used": current_player.attempts_used,
         "my_has_solved": bool(current_player.has_solved),
+        "my_status": current_player.status,
     }
 
 
@@ -687,6 +729,9 @@ def match_detail(public_id):
         )
         if not player:
             abort(404)
+        if player.status == "left":
+            flash("Ви вже покинули цей матч. Результати збережені.", "info")
+            return redirect(url_for("pvp.lobby_list"))
         return render_template(
             "pvp_match.html",
             match=match,
@@ -709,7 +754,11 @@ def match_state(public_id):
     try:
         if request.method == "POST":
             _begin_write()
-        match = PvPMatch.query.filter_by(public_id=public_id).first()
+        match = PvPMatch.query.options(
+            selectinload(PvPMatch.players).selectinload(PvPMatchPlayer.attempts),
+            selectinload(PvPMatch.players).joinedload(PvPMatchPlayer.user),
+            selectinload(PvPMatch.rounds),
+        ).filter_by(public_id=public_id).first()
         if match is None:
             if request.method == "POST":
                 db.session.rollback()
@@ -721,11 +770,17 @@ def match_state(public_id):
             if request.method == "POST":
                 db.session.rollback()
             return {"error": "match_unavailable"}, 404
+        if player.status == "left":
+            if request.method == "POST":
+                db.session.rollback()
+            return {"error": "match_left"}, 410
 
         now = _utcnow()
         if request.method == "POST":
             player.last_seen_at = now
             advance_match_clock(match, now)
+            expire_unfinished_players(match)
+            complete_round_if_all_players_finished(match, now)
             db.session.commit()
         payload = _match_state_payload(match, player, now)
         result = jsonify(payload)
@@ -735,6 +790,167 @@ def match_state(public_id):
         db.session.rollback()
         logger.exception("Could not load or advance PvP match state")
         return {"error": "match_state_unavailable"}, 503
+
+
+@pvp_bp.route("/match/<public_id>/guess", methods=["POST"])
+@login_required
+def submit_match_guess(public_id):
+    """Validate, score, and persist one private guess with a client idempotency key."""
+    _check_csrf()
+    request_id = request.form.get("request_id", "")
+    if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}", request_id):
+        return {"error": "invalid_request_id"}, 400
+    if not _PUBLIC_ID_RE.fullmatch(public_id or ""):
+        return {"error": "match_unavailable"}, 404
+    try:
+        _begin_write()
+        match = PvPMatch.query.filter_by(public_id=public_id).first()
+        if match is None:
+            db.session.rollback()
+            return {"error": "match_unavailable"}, 404
+        player = PvPMatchPlayer.query.filter_by(
+            match_id=match.id, user_id=current_user.id
+        ).first()
+        if player is None:
+            db.session.rollback()
+            return {"error": "match_unavailable"}, 404
+        if player.status == "left":
+            db.session.rollback()
+            return {"error": "player_left"}, 409
+
+        raw_guess = request.form.get("guess", "")
+        now = _utcnow()
+        player.last_seen_at = now
+        advance_match_clock(match, now)
+        expire_unfinished_players(match)
+        complete_round_if_all_players_finished(match, now)
+        current_round = next(
+            (item for item in match.rounds if item.round_number == match.current_round), None
+        )
+
+        prior_attempt = PvPMatchAttempt.query.filter_by(
+            match_id=match.id, player_id=player.id, request_id=request_id.lower()
+        ).first()
+        if prior_attempt is not None:
+            if not isinstance(raw_guess, str) or prior_attempt.guess != raw_guess.upper():
+                db.session.commit()
+                return {"error": "request_id_conflict"}, 409
+            payload = _match_state_payload(match, player, now)
+            payload["duplicate"] = True
+            payload["attempt_number"] = prior_attempt.attempt_number
+            payload["colors"] = safe_color_row(prior_attempt.colors) or []
+            db.session.commit()
+            result = jsonify(payload)
+            result.headers["Cache-Control"] = "no-store"
+            return result
+
+        if match.status != "in_progress" or current_round is None:
+            db.session.commit()
+            return {"error": "round_unavailable"}, 409
+        if current_round.status == "expired":
+            db.session.commit()
+            return {"error": "round_expired"}, 409
+        if current_round.status != "in_progress":
+            db.session.commit()
+            return {"error": "round_unavailable"}, 409
+        if player.current_round != current_round.round_number or player.status != "active":
+            db.session.commit()
+            return {"error": "player_round_finished", "status": player.status}, 409
+
+        normalized_guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
+        if validation_error:
+            db.session.commit()
+            return {"error": "invalid_guess", "message": validation_error}, 400
+
+        attempt_number = player.attempts_used + 1
+        colors = evaluate_guess(normalized_guess.lower(), current_round.word.lower())
+        solved = normalized_guess.lower() == current_round.word.lower()
+        terminal_status = "solved" if solved else ("failed" if attempt_number >= match.attempts_per_word else "active")
+        attempt = PvPMatchAttempt(
+            match_id=match.id,
+            player_id=player.id,
+            round_id=current_round.id,
+            attempt_number=attempt_number,
+            request_id=request_id.lower(),
+            guess=normalized_guess,
+            colors=json.dumps(colors, separators=(",", ":")),
+            is_correct=solved,
+            submitted_at=now,
+        )
+        db.session.add(attempt)
+        player.attempts_used = attempt_number
+        player.has_solved = solved
+        player.status = terminal_status
+        player.progress = json.dumps(safe_progress_rows(player.progress) + [colors], separators=(",", ":"))
+        complete_round_if_all_players_finished(match, now)
+        db.session.commit()
+
+        payload = _match_state_payload(match, player, now)
+        payload["duplicate"] = False
+        payload["attempt_number"] = attempt_number
+        payload["colors"] = colors
+        result = jsonify(payload)
+        result.headers["Cache-Control"] = "no-store"
+        return result
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not persist PvP guess")
+        return {"error": "guess_unavailable"}, 503
+
+
+@pvp_bp.route("/match/<public_id>/leave", methods=["POST"])
+@login_required
+def leave_match(public_id):
+    """Freeze this player's score and detach them from the old lobby atomically."""
+    _check_csrf()
+    if not _PUBLIC_ID_RE.fullmatch(public_id or ""):
+        flash("Матч недоступний.", "error")
+        return redirect(url_for("pvp.lobby_list"))
+
+    try:
+        _begin_write()
+        match = PvPMatch.query.filter_by(public_id=public_id).first()
+        if match is None:
+            db.session.rollback()
+            flash("Матч більше не існує.", "info")
+            return redirect(url_for("pvp.lobby_list"))
+
+        player = PvPMatchPlayer.query.filter_by(
+            match_id=match.id, user_id=current_user.id
+        ).first()
+        if player is None:
+            db.session.rollback()
+            flash("Ви не є учасником цього матчу.", "error")
+            return redirect(url_for("pvp.lobby_list"))
+
+        now = _utcnow()
+        already_left = player.status == "left"
+        if not already_left:
+            player.status = "left"
+            player.score_frozen_at = player.score_frozen_at or now
+        elif player.score_frozen_at is None:
+            # Repair a legacy/incomplete left record without changing its score.
+            player.score_frozen_at = now
+
+        membership = PvPLobbyMember.query.filter_by(
+            lobby_id=match.lobby_id, user_id=current_user.id
+        ).first()
+        if membership is not None:
+            db.session.delete(membership)
+
+        complete_round_if_all_players_finished(match, now)
+        db.session.commit()
+        flash(
+            "Ви вже покинули цей матч. Ваші результати збережені." if already_left
+            else "Ви покинули матч. Ваші спроби та рахунок збережені.",
+            "info" if already_left else "success",
+        )
+        return redirect(url_for("pvp.lobby_list"))
+    except (SQLAlchemyError, ValueError):
+        db.session.rollback()
+        logger.exception("Could not leave PvP match")
+        flash("Не вдалося покинути матч. Спробуйте ще раз.", "error")
+        return redirect(url_for("pvp.match_detail", public_id=public_id))
 
 
 @pvp_bp.route("/<public_id>/kick", methods=["POST"])

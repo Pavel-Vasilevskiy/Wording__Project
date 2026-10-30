@@ -663,28 +663,38 @@ class PvPLobbyTests(unittest.TestCase):
                 "joined_at DATETIME NOT NULL, PRIMARY KEY (lobby_id, user_id), UNIQUE (user_id))"
             ))
             connection.execute(text(
+                "CREATE TABLE pvp_match_player (id INTEGER PRIMARY KEY, status VARCHAR(16) NOT NULL)"
+            ))
+            connection.execute(text(
                 "INSERT INTO pvp_lobby VALUES (1, 'a' || 'a', 9, 'open', '2026-01-01 00:00:00')"
             ))
             connection.execute(text(
                 "INSERT INTO pvp_lobby_member VALUES (1, 9, '2026-01-01 00:00:00')"
             ))
+            connection.execute(text("INSERT INTO pvp_match_player VALUES (1, 'active')"))
 
         upgrade_pvp_schema(engine)
         upgrade_pvp_schema(engine)
         with engine.connect() as connection:
             lobby_columns = {column["name"] for column in inspect(connection).get_columns("pvp_lobby")}
             member_columns = {column["name"] for column in inspect(connection).get_columns("pvp_lobby_member")}
+            match_player_columns = {column["name"] for column in inspect(connection).get_columns("pvp_match_player")}
             lobby_row = connection.execute(text(
                 "SELECT words_per_match, mode, timer_seconds FROM pvp_lobby WHERE id = 1"
             )).one()
             member_row = connection.execute(text(
                 "SELECT is_ready, last_seen_at FROM pvp_lobby_member WHERE lobby_id = 1"
             )).one()
+            player_score = connection.execute(text(
+                "SELECT score, score_frozen_at FROM pvp_match_player WHERE id = 1"
+            )).one()
         self.assertTrue({"words_per_match", "mode", "timer_seconds", "settings_version"}.issubset(lobby_columns))
         self.assertTrue({"is_ready", "last_seen_at"}.issubset(member_columns))
+        self.assertTrue({"score", "score_frozen_at"}.issubset(match_player_columns))
         self.assertEqual(tuple(lobby_row), (5, "timer", 120))
         self.assertFalse(member_row.is_ready)
         self.assertNotEqual(str(member_row.last_seen_at), "1970-01-01 00:00:00")
+        self.assertEqual(tuple(player_score), (0, None))
         self.assertEqual(PvPLobby.query.count(), 0)  # Upgrade used an isolated in-memory database.
         engine.dispose()
 
