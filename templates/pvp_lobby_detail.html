@@ -103,7 +103,7 @@
                     </form>
                     <form id="pvp-start-form" method="post" action="{{ url_for('pvp.start_lobby', public_id=lobby.public_id) }}" {% if current_user_id != lobby.leader_id or lobby.status != 'open' %}hidden{% endif %}>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button class="pvp-button pvp-action" id="pvp-start-button" type="submit" {% if not snapshot.all_online_ready %}disabled{% endif %}>Почати підготовку матчу</button>
+                        <button class="pvp-button pvp-action" id="pvp-start-button" type="submit" {% if not snapshot.all_online_ready %}disabled{% endif %}>Почати гру</button>
                     </form>
                     <p class="pvp-explanation" id="pvp-start-explanation" role="status" aria-live="polite">{{ snapshot.start_explanation }}</p>
                 </div>

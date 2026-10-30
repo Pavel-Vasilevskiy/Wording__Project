@@ -5,7 +5,7 @@ from pathlib import Path
 from app_with_auth import app
 from flask import g
 from models import User, db
-from pvp.models import PvPLobby, PvPLobbyKickNotice, PvPLobbyMember
+from pvp.models import PvPLobby, PvPLobbyKickNotice, PvPLobbyMember, PvPMatch
 from pvp.presence import HEARTBEAT_INTERVAL_SECONDS, OFFLINE_AFTER_SECONDS, cleanup_stale_lobbies, is_online
 from pvp.routes import MAX_LOBBY_SIZE
 from pvp.schema import upgrade_pvp_schema
@@ -213,14 +213,22 @@ class PvPLobbyTests(unittest.TestCase):
         db.session.commit()
         self.assertIsNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=player.id).first())
 
-        # Once the future actual-match state is entered, disconnects preserve membership.
-        lobby.status = "in_progress"
+        # A real attached match owns a fixed roster; offline cleanup keeps membership/history.
+        lobby.status = "matched"
         restored = PvPLobbyMember(lobby_id=lobby.id, user_id=player.id, last_seen_at=stale_at)
         db.session.add(restored)
+        db.session.flush()
+        match = PvPMatch(
+            lobby_id=lobby.id, status="in_progress", game_mode="timer", words_count=3,
+            timer_seconds=120, attempts_per_word=6, current_round=1,
+            countdown_started_at=stale_at, scheduled_start_at=stale_at,
+        )
+        db.session.add(match)
         db.session.commit()
         cleanup_stale_lobbies(now=now + timedelta(seconds=1))
         db.session.commit()
         self.assertIsNotNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=player.id).first())
+        self.assertEqual(PvPMatch.query.filter_by(lobby_id=lobby.id).count(), 1)
 
     def test_heartbeat_interval_and_server_timeout_boundary(self):
         self.assertEqual(HEARTBEAT_INTERVAL_SECONDS, 10)
@@ -532,8 +540,12 @@ class PvPLobbyTests(unittest.TestCase):
         db.session.commit()
         self.post_form(leader_client, f"/pvp/{lobby.public_id}/start")
         db.session.refresh(lobby)
-        self.assertEqual(lobby.status, "starting")  # Offline member was removed before readiness is evaluated.
+        self.assertEqual(lobby.status, "open")
+        self.assertIsNotNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=player.id).first())
+        self.post_form_with_existing_token(leader_client, f"/pvp/{lobby.public_id}/heartbeat")
         self.assertIsNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=player.id).first())
+        self.post_form(leader_client, f"/pvp/{lobby.public_id}/start")
+        self.assertEqual(db.session.get(PvPLobby, lobby.id).status, "matched")
 
     def test_heartbeat_updates_server_time_and_resets_ready_after_offline_period(self):
         leader, player = self.create_user(56), self.create_user(57)

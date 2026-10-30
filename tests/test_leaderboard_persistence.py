@@ -200,7 +200,7 @@ class LeaderboardPersistenceTests(unittest.TestCase):
 
         self.assertEqual(
             set(inspect(db.engine).get_table_names()),
-            {"user", "game_session", "pvp_lobby", "pvp_lobby_member", "pvp_lobby_kick_notice"},
+            {"user", "game_session", "pvp_lobby", "pvp_lobby_member", "pvp_lobby_kick_notice", "pvp_match", "pvp_match_round", "pvp_match_player"},
         )
 
     def test_fly_config_uses_the_persistent_volume_path_in_fra(self):

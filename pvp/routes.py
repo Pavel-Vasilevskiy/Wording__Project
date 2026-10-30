@@ -3,7 +3,7 @@ import hashlib
 import logging
 import re
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import (
     Blueprint,
@@ -21,13 +21,28 @@ from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from models import db
-from pvp.models import PvPLobby, PvPLobbyKickNotice, PvPLobbyMember
+from pvp.models import (
+    PvPLobby,
+    PvPLobbyKickNotice,
+    PvPLobbyMember,
+    PvPMatch,
+    PvPMatchPlayer,
+    PvPMatchRound,
+)
+from pvp.match_logic import (
+    COUNTDOWN_SECONDS,
+    advance_match_clock,
+    choose_word_sequence,
+    safe_progress_rows,
+    seconds_remaining,
+)
 from pvp.presence import (
     HEARTBEAT_INTERVAL_SECONDS,
     cleanup_stale_lobbies,
     is_online,
     mark_member_online,
 )
+from word_dictionary import EN_US_DICTIONARY
 
 
 pvp_bp = Blueprint("pvp", __name__, url_prefix="/pvp")
@@ -39,6 +54,10 @@ MIN_TIMER_SECONDS = 30
 MAX_TIMER_SECONDS = 600
 _PUBLIC_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 logger = logging.getLogger(__name__)
+
+
+def _utcnow():
+    return datetime.utcnow()
 
 
 def _csrf_token():
@@ -129,6 +148,104 @@ def _lobby_snapshot(lobby, user_id, now=None):
         "online_count": len(members) - offline_count,
         "all_online_ready": all_online_ready,
         "start_explanation": start_explanation,
+    }
+
+
+def _iso_utc(value):
+    return value.isoformat(timespec="milliseconds") + "Z" if value else None
+
+
+def _create_match(lobby, now):
+    sequence = choose_word_sequence(EN_US_DICTIONARY, lobby.words_per_match)
+    match = PvPMatch(
+        lobby_id=lobby.id,
+        status="countdown",
+        game_mode=lobby.mode,
+        words_count=lobby.words_per_match,
+        timer_seconds=lobby.timer_seconds if lobby.mode == "timer" else None,
+        attempts_per_word=DEFAULT_ATTEMPTS_PER_WORD,
+        current_round=1,
+        created_at=now,
+        countdown_started_at=now,
+        scheduled_start_at=now + timedelta(seconds=COUNTDOWN_SECONDS),
+    )
+    db.session.add(match)
+    db.session.flush()
+    for round_number, word in enumerate(sequence, start=1):
+        db.session.add(PvPMatchRound(
+            match_id=match.id,
+            round_number=round_number,
+            word=word,
+            status="countdown" if round_number == 1 else "waiting",
+        ))
+    for member in list(lobby.memberships):
+        db.session.add(PvPMatchPlayer(
+            match_id=match.id,
+            user_id=member.user_id,
+            joined_at=member.joined_at,
+            last_seen_at=member.last_seen_at,
+            status="active",
+            current_round=1,
+            attempts_used=0,
+            has_solved=False,
+            progress="[]",
+            round_history="[]",
+        ))
+    lobby.status = "matched"
+    return match
+
+
+def _match_state_payload(match, current_player, now):
+    current_round = next(
+        (item for item in match.rounds if item.round_number == match.current_round), None
+    )
+    round_status = current_round.status if current_round else "waiting"
+    if current_round and current_round.status == "in_progress" and current_round.deadline_at and current_round.deadline_at <= now:
+        round_status = "expired"
+
+    players = []
+    for player in match.players:
+        online = is_online(player, now)
+        players.append({
+            "name": player.user.name,
+            "avatar": player.user.picture,
+            "is_online": online,
+            "status": "solved" if player.has_solved else ("playing" if online else "offline"),
+            "current_round": player.current_round,
+            "attempts_used": player.attempts_used,
+            "has_solved": bool(player.has_solved),
+            "progress": safe_progress_rows(player.progress),
+        })
+
+    reveal_first_word = match.status == "in_progress" and current_round is not None
+    return {
+        "public_id": match.public_id,
+        "status": match.status,
+        "game_mode": match.game_mode,
+        "words_count": match.words_count,
+        "attempts_per_word": match.attempts_per_word,
+        "current_round": match.current_round,
+        "created_at": _iso_utc(match.created_at),
+        "countdown_started_at": _iso_utc(match.countdown_started_at),
+        "scheduled_start_at": _iso_utc(match.scheduled_start_at),
+        "started_at": _iso_utc(match.started_at),
+        "server_now": _iso_utc(now),
+        "countdown_seconds_remaining": (
+            seconds_remaining(match.scheduled_start_at, now) if match.status == "countdown" else 0
+        ),
+        "round": {
+            "number": match.current_round,
+            "status": round_status,
+            "word": current_round.word if reveal_first_word else None,
+            "started_at": _iso_utc(current_round.started_at) if current_round else None,
+            "deadline_at": _iso_utc(current_round.deadline_at) if current_round else None,
+            "seconds_remaining": seconds_remaining(current_round.deadline_at, now) if current_round else None,
+        },
+        "player_count": len(match.players),
+        "players": players,
+        "my_progress": safe_progress_rows(current_player.progress),
+        "my_attempts_used": current_player.attempts_used,
+        "my_has_solved": bool(current_player.has_solved),
     }
 
 
@@ -303,6 +420,10 @@ def lobby_state(public_id):
         current_member = snapshot["current_member"]["membership"]
         response = {
             "status": lobby.status,
+            "match_url": (
+                url_for("pvp.match_detail", public_id=lobby.match.public_id)
+                if lobby.match else None
+            ),
             "leader": lobby.leader.name,
             "members": [
                 {
@@ -507,11 +628,15 @@ def start_lobby(public_id):
     try:
         _begin_write()
         lobby = _lobby_or_404(public_id)
-        member = mark_member_online(lobby, user_id)
+        member = PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=user_id).first()
         if member is None:
             db.session.rollback()
             flash("Ви більше не є учасником цього лобі.", "error")
             return redirect(url_for("pvp.lobby_list"))
+        if lobby.match is not None:
+            match_url = url_for("pvp.match_detail", public_id=lobby.match.public_id)
+            db.session.commit()
+            return redirect(match_url)
         if lobby.leader_id != user_id:
             db.session.commit()
             flash("Запустити підготовку може лише лідер лобі.", "error")
@@ -522,7 +647,7 @@ def start_lobby(public_id):
             return redirect(url_for("pvp.lobby_detail", public_id=public_id))
 
         members = list(lobby.memberships)
-        now = datetime.utcnow()
+        now = _utcnow()
         if any(not is_online(participant, now) for participant in members):
             db.session.commit()
             flash("Запуск недоступний: дочекайтеся, поки всі учасники будуть онлайн.", "error")
@@ -532,14 +657,84 @@ def start_lobby(public_id):
             flash("Запуск недоступний: усі учасники, включно з лідером, мають бути готові.", "error")
             return redirect(url_for("pvp.lobby_detail", public_id=public_id))
 
-        lobby.status = "starting"
+        member = mark_member_online(lobby, user_id, now=now)
+        if member is None:
+            db.session.rollback()
+            flash("Ви більше не є учасником цього лобі.", "error")
+            return redirect(url_for("pvp.lobby_list"))
+        match = _create_match(lobby, now)
+        match_url = url_for("pvp.match_detail", public_id=match.public_id)
         db.session.commit()
-        flash("Усі готові. Лобі перейшло до підготовки матчу.", "success")
+        flash("Матч створено. Спільний відлік розпочався.", "success")
+        return redirect(match_url)
     except SQLAlchemyError:
         db.session.rollback()
         logger.exception("Could not start PvP lobby")
         flash("Не вдалося змінити стан лобі. Спробуйте ще раз.", "error")
     return redirect(url_for("pvp.lobby_detail", public_id=public_id))
+
+
+@pvp_bp.route("/match/<public_id>", methods=["GET"])
+@login_required
+def match_detail(public_id):
+    if not _PUBLIC_ID_RE.fullmatch(public_id or ""):
+        abort(404)
+    try:
+        match = PvPMatch.query.filter_by(public_id=public_id).first()
+        player = (
+            PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=current_user.id).first()
+            if match else None
+        )
+        if not player:
+            abort(404)
+        return render_template(
+            "pvp_match.html",
+            match=match,
+            csrf_token=_csrf_token(),
+        )
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not load PvP match page")
+        abort(503)
+
+
+@pvp_bp.route("/match/<public_id>/state", methods=["GET", "POST"])
+@login_required
+def match_state(public_id):
+    """GET is read-only; authenticated CSRF POST also records presence and advances due clocks."""
+    if request.method == "POST":
+        _check_csrf()
+    if not _PUBLIC_ID_RE.fullmatch(public_id or ""):
+        return {"error": "match_unavailable"}, 404
+    try:
+        if request.method == "POST":
+            _begin_write()
+        match = PvPMatch.query.filter_by(public_id=public_id).first()
+        if match is None:
+            if request.method == "POST":
+                db.session.rollback()
+            return {"error": "match_unavailable"}, 404
+        player = PvPMatchPlayer.query.filter_by(
+            match_id=match.id, user_id=current_user.id
+        ).first()
+        if player is None:
+            if request.method == "POST":
+                db.session.rollback()
+            return {"error": "match_unavailable"}, 404
+
+        now = _utcnow()
+        if request.method == "POST":
+            player.last_seen_at = now
+            advance_match_clock(match, now)
+            db.session.commit()
+        payload = _match_state_payload(match, player, now)
+        result = jsonify(payload)
+        result.headers["Cache-Control"] = "no-store"
+        return result
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not load or advance PvP match state")
+        return {"error": "match_state_unavailable"}, 503
 
 
 @pvp_bp.route("/<public_id>/kick", methods=["POST"])
@@ -562,7 +757,7 @@ def kick_lobby_member(public_id):
         if lobby.leader_id != current_user.id:
             db.session.commit()
             return {"error": "leader_required"}, 403
-        if lobby.status == "in_progress":
+        if lobby.match is not None or lobby.status != "open":
             db.session.rollback()
             return {"error": "match_in_progress"}, 409
 
@@ -651,6 +846,10 @@ def leave_lobby(public_id):
             db.session.rollback()
             flash("Лобі вже недоступне.", "info")
             return redirect(url_for("pvp.lobby_list"))
+
+        if lobby.match is not None:
+            db.session.commit()
+            return redirect(url_for("pvp.match_detail", public_id=lobby.match.public_id))
 
         membership = PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=user_id).first()
         if not membership:

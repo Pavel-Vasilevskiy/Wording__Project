@@ -7,7 +7,14 @@ from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
-from pvp.models import PvPLobby, PvPLobbyMember
+from pvp.models import (
+    PvPLobby,
+    PvPLobbyKickNotice,
+    PvPLobbyMember,
+    PvPMatch,
+    PvPMatchPlayer,
+    PvPMatchRound,
+)
 from pvp.routes import pvp_bp
 from pvp.schema import upgrade_pvp_schema
 from word_dictionary import EN_US_DICTIONARY, validate_guess

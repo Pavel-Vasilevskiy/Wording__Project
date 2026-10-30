@@ -32,9 +32,8 @@ def cleanup_stale_lobbies(now=None):
         online_members = [member for member in members if is_online(member, now)]
         offline_members = [member for member in members if not is_online(member, now)]
 
-        # A future in_progress lobby represents an actual match. Preserve its
-        # roster and game progress when a player disconnects.
-        if lobby.status == "in_progress":
+        # A match owns its roster and history; presence is recorded on MatchPlayer.
+        if lobby.match is not None:
             continue
 
         if not online_members:

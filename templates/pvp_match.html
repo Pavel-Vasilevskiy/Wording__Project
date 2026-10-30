@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <title>PvP Wordle — матч</title>
+    <style>
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        .match-shell { width: min(100% - 32px, 980px); margin: 0 auto; padding: 24px 0 48px; }
+        .match-header, .match-status-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        h1 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.2rem); }
+        h2 { font-size: 1.15rem; }
+        .match-link, .match-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border: 1px solid #52627a; border-radius: 10px; color: #f8fafc; background: rgba(25,39,60,.88); text-decoration: none; font: inherit; }
+        .match-panel { margin-top: 22px; padding: clamp(18px, 4vw, 30px); border: 1px solid #34445b; border-radius: 18px; background: rgba(25,39,60,.92); }
+        .match-muted { color: #bdc9dc; }
+        .match-countdown { display: grid; place-items: center; min-height: 220px; text-align: center; }
+        .countdown-number { margin: 12px 0; color: #a9df9c; font-size: clamp(5rem, 23vw, 10rem); line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .match-word { display: flex; justify-content: center; gap: 8px; margin: 24px 0; font-size: clamp(2.5rem, 12vw, 4.5rem); letter-spacing: .18em; font-weight: 800; }
+        .match-clock { font-size: clamp(1.8rem, 7vw, 3rem); font-variant-numeric: tabular-nums; font-weight: 700; }
+        .player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; margin: 14px 0 0; padding: 0; list-style: none; }
+        .player-card { min-width: 0; padding: 16px; border: 1px solid #52627a; border-radius: 14px; background: rgba(16,24,39,.56); }
+        .player-head { display: flex; align-items: center; gap: 11px; }
+        .player-avatar { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; color: #102016; background: #9bd18f; object-fit: cover; font-weight: 800; }
+        .player-meta { min-width: 0; flex: 1; }
+        .player-meta strong { display: block; overflow: hidden; text-overflow: ellipsis; }
+        .presence { display: inline-block; margin-top: 4px; padding: 3px 8px; border-radius: 999px; font-size: .8rem; }
+        .presence.online { color: #102016; background: #9bd18f; }
+        .presence.offline { color: #fff; background: #5b2c35; }
+        .player-progress { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+        .progress-row { display: flex; gap: 5px; }
+        .progress-cell { width: 28px; height: 28px; border: 1px solid #52627a; border-radius: 5px; background: #263448; }
+        .progress-cell.green { border-color: #538d55; background: #538d55; }
+        .progress-cell.yellow { border-color: #b69b31; background: #b69b31; }
+        .progress-cell.gray { border-color: #536071; background: #536071; }
+        .player-round, .player-result { margin: 11px 0 0; font-size: .92rem; }
+        .match-message { min-height: 1.3em; }
+        @media (max-width: 520px) { .match-shell { width: min(100% - 24px, 980px); } .match-panel { border-radius: 14px; } .player-card { padding: 13px; } }
+        @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+    </style>
+</head>
+<body>
+<main class="match-shell" id="pvp-match"
+      data-state-url="{{ url_for('pvp.match_state', public_id=match.public_id) }}"
+      data-csrf-token="{{ csrf_token }}">
+    <header class="match-header">
+        <h1>PvP Wordle</h1>
+        <a class="match-link" href="{{ url_for('index') }}">← До всіх ігор</a>
+    </header>
+    <section class="match-panel">
+        <div class="match-status-line">
+            <strong id="match-status">Підключення до матчу…</strong>
+            <span class="match-muted" id="match-player-count">— гравців</span>
+        </div>
+        <p class="match-message match-muted" id="match-message" role="status" aria-live="polite"></p>
+        <section class="match-countdown" id="match-countdown" aria-live="polite" hidden>
+            <div>
+                <p class="match-muted">Спільний старт через</p>
+                <div class="countdown-number" id="countdown-value">5</div>
+            </div>
+        </section>
+        <section id="match-round" hidden>
+            <div class="match-status-line">
+                <h2><span id="round-label">Слово 1/5</span></h2>
+                <span id="round-status" class="match-muted">Раунд активний</span>
+            </div>
+            <div class="match-word" id="match-word" aria-label="Поточне слово"></div>
+            <div class="match-clock" id="match-clock" aria-live="off" hidden></div>
+            <p class="match-muted" id="match-mode-note"></p>
+        </section>
+    </section>
+    <section class="match-panel" aria-labelledby="players-title">
+        <h2 id="players-title">Табло гравців</h2>
+        <p class="match-muted">Відображаються лише кольори завершених спроб; введені слова не передаються іншим гравцям.</p>
+        <ul class="player-grid" id="match-players" aria-live="polite"></ul>
+    </section>
+</main>
+<script src="{{ url_for('static', filename='pvp_match.js') }}" defer></script>
+</body>
+</html>

@@ -187,6 +187,11 @@
             if (!response.ok) throw new Error("Lobby state request failed");
 
             const state = await response.json();
+            if (state.match_url) {
+                stopMonitoring();
+                window.location.href = state.match_url;
+                return;
+            }
             renderState(state);
             if (state.status === "closed") {
                 showUnavailable("Лобі закрите.");

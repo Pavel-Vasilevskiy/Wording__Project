@@ -87,7 +87,9 @@ function loadPollingScript(fetch, withSettings = false) {
         getElementById: (id) => elements[id],
         createElement,
     };
+    const location = { href: "" };
     const window = {
+        location,
         setTimeout(callback, delay) {
             const id = nextTimerId++;
             timers.set(id, { callback, delay });
@@ -108,7 +110,7 @@ function loadPollingScript(fetch, withSettings = false) {
         timers.delete(entry[0]);
         entry[1].callback();
     }
-    return { elements, timers, runTimer };
+    return { elements, timers, runTimer, location };
 }
 
 function jsonResponse(status, body) {
@@ -250,4 +252,21 @@ test("settings save automatically and serialize newer values after an in-flight 
     pending[1](jsonResponse(200, { saved: true, changed: true, settings: { words_per_match: 3, mode: "timer", timer_seconds: 120, version: 2 } }));
     await new Promise(setImmediate);
     assert.equal(elements["pvp-settings-save-status"].textContent, "Збережено");
+});
+
+
+test("lobby polling redirects members to the created match", async () => {
+    const requests = [];
+    const fetch = (url, options) => {
+        requests.push({ url, options });
+        if (url.endsWith("/heartbeat")) return Promise.resolve(jsonResponse(200, { online: true }));
+        return Promise.resolve(jsonResponse(200, { match_url: "/pvp/match/shared-match" }));
+    };
+    const { location, timers } = loadPollingScript(fetch);
+    await new Promise(setImmediate);
+    await new Promise(setImmediate);
+
+    assert.equal(requests.filter((request) => request.url.endsWith("/state")).length, 1);
+    assert.equal(location.href, "/pvp/match/shared-match");
+    assert.equal(timers.size, 0);
 });
