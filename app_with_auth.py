@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
 from pvp.models import PvPLobby, PvPLobbyMember
 from pvp.routes import pvp_bp
+from pvp.schema import upgrade_pvp_schema
 from word_dictionary import EN_US_DICTIONARY, validate_guess
 
 # Load environment variables
@@ -305,9 +306,10 @@ def leaderboard():
 
 
 def initialize_database():
-    """Create missing tables for a fresh database without altering existing tables."""
+    """Create missing tables and apply additive PvP upgrades without dropping data."""
     with app.app_context():
         db.create_all()
+        upgrade_pvp_schema()
 
 
 if __name__ == '__main__':

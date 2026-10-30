@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        [hidden] { display: none !important; }
         .pvp-shell { width: min(100% - 36px, 900px); margin: 0 auto; padding: 28px 0 56px; }
         .pvp-nav { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
         .pvp-nav a, .pvp-button { color: #f8fafc; border: 1px solid #52627a; border-radius: 10px; padding: 10px 14px; text-decoration: none; background: rgba(25,39,60,.88); font: inherit; cursor: pointer; }
@@ -15,6 +16,8 @@
         .pvp-panel { margin-top: 28px; padding: clamp(20px, 5vw, 34px); border: 1px solid #34445b; border-radius: 20px; background: rgba(25,39,60,.92); }
         .pvp-current-lobby { display: grid; justify-items: start; gap: 12px; margin: 18px 0 28px; }
         .pvp-current-lobby p { margin: 0; }
+        .pvp-refresh-row { display: flex; align-items: center; gap: 12px; margin: 14px 0 8px; }
+        .pvp-refresh-status { min-height: 1.2em; color: #bdc9dc; font-size: .9rem; }
         .pvp-create-form { margin: 18px 0 28px; }
         .pvp-section-title { margin: 0; }
         h1 { margin-top: 0; }
@@ -37,12 +40,16 @@
         <a href="{{ url_for('index') }}">← До всіх ігор</a>
         <a href="{{ url_for('wordle') }}">Classic Wordle</a>
     </nav>
-    <section class="pvp-panel">
+    <section class="pvp-panel" id="pvp-lobby-list-page"
+             data-refresh-url="{{ url_for('pvp.lobby_list_state') }}"
+             data-create-url="{{ url_for('pvp.create_lobby') }}"
+             data-csrf-token="{{ csrf_token }}">
         <h1>PvP Wordle — лобі</h1>
         <p class="pvp-muted">Створіть кімнату або приєднайтеся до відкритого лобі. Ігрові раунди з’являться пізніше.</p>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}<div class="pvp-flashes" role="status">{% for category, message in messages %}<div class="pvp-flash pvp-flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
         {% endwith %}
+        <div id="pvp-current-action">
         {% if my_membership %}
             <div class="pvp-current-lobby">
             <p>Ви вже в лобі <strong>{{ my_membership.lobby.leader.name }}</strong>.</p>
@@ -54,13 +61,18 @@
                 <button class="pvp-button pvp-action" type="submit">Створити лобі</button>
             </form>
         {% endif %}
+        </div>
+        <div class="pvp-refresh-row">
+            <button class="pvp-button" id="pvp-refresh-lobbies" type="button">Оновити список</button>
+            <span class="pvp-refresh-status" id="pvp-refresh-status" role="status" aria-live="polite"></span>
+        </div>
         <h2 class="pvp-section-title">Відкриті лобі</h2>
-        {% if lobbies %}
-            <ul class="pvp-list">
+        <ul class="pvp-list" id="pvp-open-lobbies" aria-live="polite" aria-busy="false">
+            {% if lobbies %}
             {% for lobby in lobbies %}
                 {% set member_count = lobby.memberships|length %}
-                <li class="pvp-lobby-row">
-                    <div><h2>Лідер: {{ lobby.leader.name }}</h2><div class="pvp-muted">{{ member_count }}/{{ max_lobby_size }} гравців · {{ lobby.created_at.strftime('%d.%m.%Y %H:%M') }}</div></div>
+                <li class="pvp-lobby-row" data-lobby-id="{{ lobby.public_id }}">
+                    <div><h2>Лідер: <span data-lobby-leader>{{ lobby.leader.name }}</span></h2><div class="pvp-muted"><span data-lobby-count>{{ member_count }}</span>/{{ max_lobby_size }} гравців · <span data-lobby-created>{{ lobby.created_at.strftime('%d.%m.%Y %H:%M') }}</span></div></div>
                     {% if my_membership and my_membership.lobby_id == lobby.id %}
                         <a class="pvp-button" href="{{ url_for('pvp.lobby_detail', public_id=lobby.public_id) }}">Відкрити лобі</a>
                     {% elif not my_membership and member_count < max_lobby_size %}
@@ -71,9 +83,11 @@
                     {% else %}<span class="pvp-muted">{{ member_count }}/{{ max_lobby_size }} · зайнято</span>{% endif %}
                 </li>
             {% endfor %}
-            </ul>
-        {% else %}<p class="pvp-muted">Поки немає відкритих лобі.</p>{% endif %}
+            {% endif %}
+        </ul>
+        <p class="pvp-muted" id="pvp-empty-lobbies" {% if lobbies %}hidden{% endif %}>Поки немає відкритих лобі.</p>
     </section>
 </main>
+<script src="{{ url_for('static', filename='pvp_lobbies.js') }}" defer></script>
 </body>
 </html>
