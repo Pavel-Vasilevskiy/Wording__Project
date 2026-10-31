@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const script = fs.readFileSync(path.join(__dirname, "..", "static", "pvp_match.js"), "utf8");
+const template = fs.readFileSync(path.join(__dirname, "..", "templates", "pvp_match.html"), "utf8");
 
 class Element {
     constructor(tagName = "div") {
@@ -29,11 +30,12 @@ function setup(fetch) {
     const ids = [
         "match-status", "match-player-count", "match-message", "guess-feedback", "match-countdown",
         "countdown-value", "match-round", "round-label", "round-status", "match-word",
-        "match-clock", "match-mode-note", "match-players", "match-board", "match-keyboard", "match-leave-form",
+        "match-clock", "match-clock-wrap", "match-clock-label", "match-mode-label", "match-players", "match-board", "match-keyboard", "match-leave-form",
     ];
     const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
     elements["match-countdown"].hidden = true;
     elements["match-round"].hidden = true;
+    elements["match-clock-wrap"].hidden = true;
     const root = new Element("main");
     root.dataset = {
         stateUrl: "/pvp/match/code/state",
@@ -144,6 +146,96 @@ test("leaving a match requires confirmation and cancellation prevents the POST f
     elements["match-leave-form"].handlers.submit({ preventDefault() { prevented = true; } });
     assert.equal(prevented, false);
     assert.equal(confirmations.length, 2);
+});
+
+test("own keyboard letters keep the best result color and restore after reload", async () => {
+    const now = Date.now();
+    const ownAttempts = [
+        { attempt_number: 1, guess: "ARRAY", colors: ["gray", "gray", "gray", "gray", "gray"] },
+        { attempt_number: 2, guess: "CRANE", colors: ["gray", "gray", "yellow", "gray", "gray"] },
+        { attempt_number: 3, guess: "CIGAR", colors: ["green", "green", "green", "green", "green"] },
+    ];
+    const stateFor = (attempts) => ({
+        ...playingState(now, attempts),
+        players: [{
+        name: "Other player", avatar: null, is_online: true, current_round: 1,
+        attempts_used: 1, has_solved: false, round_status: "active",
+        progress: [["green", "green", "green", "green", "green"]],
+        }],
+    });
+    let state = stateFor(ownAttempts.slice(0, 1));
+    const { elements, timers } = setup(async () => response(state));
+    await waitTurn();
+    const key = (letter) => findButton(elements["match-keyboard"], letter);
+    assert.match(key("A").className, /gray/);
+
+    state = stateFor(ownAttempts.slice(0, 2));
+    let poll = [...timers.entries()].find(([, timer]) => timer.delay === 1500);
+    assert.ok(poll);
+    timers.delete(poll[0]);
+    poll[1].callback();
+    await waitTurn();
+    assert.match(key("A").className, /yellow/);
+
+    state = stateFor(ownAttempts);
+    poll = [...timers.entries()].find(([, timer]) => timer.delay === 1500);
+    assert.ok(poll);
+    timers.delete(poll[0]);
+    poll[1].callback();
+    await waitTurn();
+    assert.match(key("A").className, /green/);
+    assert.match(key("C").className, /green/);
+    assert.doesNotMatch(key("Q").className, /green|yellow|gray/);
+
+    const reloaded = setup(async () => response(state));
+    await waitTurn();
+    assert.match(findButton(reloaded.elements["match-keyboard"], "A").className, /green/);
+    assert.match(findButton(reloaded.elements["match-keyboard"], "R").className, /green/);
+});
+
+test("timer and no-limit clocks are based on server timestamps and resume after reload", async () => {
+    const now = Date.now();
+    const timed = playingState(now);
+    const timedPage = setup(async () => response(timed));
+    await waitTurn();
+    assert.equal(timedPage.elements["match-clock"].textContent, "02:00");
+    assert.equal(timedPage.elements["match-clock-label"].textContent, "До кінця слова");
+
+    const elapsed = playingState(now - 155000);
+    elapsed.game_mode = "no_limit";
+    elapsed.started_at = new Date(now - 310000).toISOString();
+    elapsed.round.deadline_at = null;
+    const elapsedPage = setup(async () => response(elapsed));
+    await waitTurn();
+    assert.equal(elapsedPage.elements["match-clock"].textContent, "02:35");
+    assert.equal(elapsedPage.elements["match-clock-label"].textContent, "Час матчу");
+    const reloaded = setup(async () => response(elapsed));
+    await waitTurn();
+    assert.equal(reloaded.elements["match-clock"].textContent, "02:35");
+});
+
+test("Left player gets a muted red card and a Left pill, separate from Offline", async () => {
+    const state = playingState(Date.now());
+    state.players = [{
+        name: "Left player", avatar: null, is_online: false, current_round: 1,
+        attempts_used: 1, has_solved: false, round_status: "left",
+        progress: [["gray", "gray", "gray", "gray", "gray"]],
+    }];
+    const { elements } = setup(async () => response(state));
+    await waitTurn();
+    const card = elements["match-players"].children[0];
+    const presence = card.children[0].children[1].children[1];
+    assert.match(card.className, /left/);
+    assert.equal(presence.textContent, "Left");
+    assert.match(presence.className, /presence left/);
+});
+
+test("match page CSS keeps the countdown contained and switches to a compact mobile stack", () => {
+    assert.match(template, /grid-template-columns: minmax\(220px, 280px\) minmax\(0, 1fr\)/);
+    assert.match(template, /@media \(max-width: 700px\).*grid-template-columns: minmax\(0, 1fr\)/s);
+    assert.match(template, /\.countdown-number[^}]*clamp\(/);
+    assert.match(template, /overflow-x: clip/);
+    assert.doesNotMatch(template, /Введіть слово та натисніть Enter|Раунд активний|Матч створено\. Спільний відлік розпочався\./);
 });
 
 test("physical input fills five tiles, waits for Enter, and restores the accepted attempt", async () => {

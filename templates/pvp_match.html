@@ -9,23 +9,32 @@
         * { box-sizing: border-box; }
         [hidden] { display: none !important; }
         body { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
-        .match-shell { width: min(100% - 32px, 980px); margin: 0 auto; padding: 24px 0 48px; }
+        .match-shell { width: min(100% - 32px, 1120px); margin: 0 auto; padding: 16px 0 28px; overflow-x: clip; }
         .match-header, .match-status-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-        .match-header-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-        h1 { margin: 0; font-size: clamp(1.5rem, 5vw, 2.2rem); }
-        h2 { font-size: 1.15rem; }
-        .match-link, .match-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border: 1px solid #52627a; border-radius: 10px; color: #f8fafc; background: rgba(25,39,60,.88); text-decoration: none; font: inherit; }
+        .match-header-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+        h1 { margin: 0; font-size: clamp(1.3rem, 4vw, 1.8rem); }
+        h2 { margin: 0; font-size: 1rem; }
+        .match-link, .match-button { display: inline-flex; align-items: center; justify-content: center; padding: 8px 11px; border: 1px solid #52627a; border-radius: 9px; color: #f8fafc; background: rgba(25,39,60,.88); text-decoration: none; font: inherit; font-size: .9rem; }
         .match-leave-button { border-color: #78505b; background: rgba(70,39,50,.85); cursor: pointer; }
         .match-button:focus-visible, .match-link:focus-visible { outline: 3px solid #d9edaa; outline-offset: 2px; }
         .match-flash { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; background: rgba(25,39,60,.92); }
         .match-flash.error { border: 1px solid #a75a67; }
         .match-flash.success, .match-flash.info { border: 1px solid #56885a; }
-        .match-panel { margin-top: 22px; padding: clamp(18px, 4vw, 30px); border: 1px solid #34445b; border-radius: 18px; background: rgba(25,39,60,.92); }
+        .match-panel { min-width: 0; padding: clamp(13px, 2vw, 20px); border: 1px solid #34445b; border-radius: 15px; background: rgba(25,39,60,.92); }
+        .match-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); align-items: stretch; gap: 14px; margin-top: 14px; }
+        .match-info { display: flex; flex-direction: column; gap: 16px; }
+        .match-info-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .match-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; }
+        .match-fact { min-width: 0; padding: 8px 9px; border-radius: 9px; background: rgba(16,24,39,.58); }
+        .match-fact dt { color: #bdc9dc; font-size: .73rem; }
+        .match-fact dd { overflow-wrap: anywhere; margin: 3px 0 0; font-size: .92rem; font-weight: 700; }
+        .match-clock-wrap { margin-top: auto; padding: 12px 10px; border: 1px solid #445875; border-radius: 13px; background: rgba(16,24,39,.6); text-align: center; }
+        .match-clock-label { color: #bdc9dc; font-size: .76rem; }
         .match-muted { color: #bdc9dc; }
-        .match-countdown { display: grid; place-items: center; min-height: 220px; text-align: center; }
-        .countdown-number { margin: 12px 0; color: #a9df9c; font-size: clamp(5rem, 23vw, 10rem); line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
-        .match-word { display: flex; justify-content: center; gap: 8px; margin: 24px 0; font-size: clamp(2.5rem, 12vw, 4.5rem); letter-spacing: .18em; font-weight: 800; }
-        .match-board { display: grid; gap: 6px; width: min(100%, 340px); margin: 24px auto 18px; }
+        .match-countdown { display: grid; place-items: center; min-height: 100%; text-align: center; }
+        .countdown-number { width: 100%; margin: 8px 0; color: #a9df9c; font-size: clamp(2.5rem, 10vw, 5rem); line-height: 1.05; font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-align: center; }
+        .match-word { display: flex; justify-content: center; gap: 8px; margin: 8px 0 14px; font-size: clamp(2.3rem, 8vw, 3.6rem); letter-spacing: .14em; font-weight: 800; }
+        .match-board { display: grid; gap: 5px; width: min(100%, 370px); margin: 12px auto 10px; }
         .guess-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
         .guess-tile { display: grid; place-items: center; aspect-ratio: 1; border: 2px solid #52627a; border-radius: 5px; color: #f8fafc; font-size: clamp(1.35rem, 7vw, 2rem); font-weight: 800; text-transform: uppercase; }
         .guess-tile.filled { border-color: #9aaac1; }
@@ -34,32 +43,40 @@
         .guess-tile.gray { border-color: #536071; background: #536071; }
         .guess-tile.reveal { animation: match-tile-reveal 360ms ease both; }
         @keyframes match-tile-reveal { 0% { transform: rotateX(0); } 50% { transform: rotateX(90deg); } 100% { transform: rotateX(0); } }
-        .match-keyboard { display: grid; gap: 7px; width: min(100%, 560px); margin: 0 auto; }
+        .match-keyboard { display: grid; gap: 6px; width: min(100%, 560px); margin: 0 auto; }
         .key-row { display: flex; justify-content: center; gap: 5px; }
         .match-key { min-width: 0; flex: 1; min-height: 48px; padding: 6px 3px; border: 0; border-radius: 5px; color: #f8fafc; background: #52627a; font: 700 .95rem Arial, sans-serif; cursor: pointer; }
+        .match-key.green { background: #538d55; }
+        .match-key.yellow { background: #a98f2e; }
+        .match-key.gray { background: #3d4958; color: #d4dbe5; }
         .match-key.wide { flex: 1.55; font-size: .75rem; }
         .match-key:disabled { opacity: .55; cursor: not-allowed; }
         .match-key:focus-visible { outline: 3px solid #d9edaa; outline-offset: 2px; }
         .guess-feedback { min-height: 1.5em; margin: 10px 0; text-align: center; font-weight: 700; }
-        .match-clock { font-size: clamp(1.8rem, 7vw, 3rem); font-variant-numeric: tabular-nums; font-weight: 700; }
-        .player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; margin: 14px 0 0; padding: 0; list-style: none; }
-        .player-card { min-width: 0; padding: 16px; border: 1px solid #52627a; border-radius: 14px; background: rgba(16,24,39,.56); }
-        .player-head { display: flex; align-items: center; gap: 11px; }
-        .player-avatar { display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; color: #102016; background: #9bd18f; object-fit: cover; font-weight: 800; }
+        .match-clock { display: block; margin-top: 3px; font-size: clamp(2.1rem, 5vw, 3.2rem); line-height: 1.1; font-variant-numeric: tabular-nums; font-weight: 800; }
+        .player-panel { margin-top: 14px; }
+        .player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 9px; margin: 10px 0 0; padding: 0; list-style: none; }
+        .player-card { min-width: 0; padding: 10px 11px; border: 1px solid #52627a; border-radius: 11px; background: rgba(16,24,39,.56); }
+        .player-card.left { border-color: #a97479; background: rgba(111,62,69,.28); }
+        .player-head { display: flex; align-items: center; gap: 8px; }
+        .player-avatar { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; color: #102016; background: #9bd18f; object-fit: cover; font-weight: 800; }
         .player-meta { min-width: 0; flex: 1; }
         .player-meta strong { display: block; overflow: hidden; text-overflow: ellipsis; }
         .presence { display: inline-block; margin-top: 4px; padding: 3px 8px; border-radius: 999px; font-size: .8rem; }
         .presence.online { color: #102016; background: #9bd18f; }
         .presence.offline { color: #fff; background: #5b2c35; }
-        .player-progress { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
-        .progress-row { display: flex; gap: 5px; }
-        .progress-cell { width: 28px; height: 28px; border: 1px solid #52627a; border-radius: 5px; background: #263448; }
+        .presence.left { color: #572f35; background: #e8b9bc; }
+        .player-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+        .progress-row { display: flex; gap: 4px; }
+        .progress-cell { width: 23px; height: 23px; border: 1px solid #52627a; border-radius: 4px; background: #263448; }
         .progress-cell.green { border-color: #538d55; background: #538d55; }
         .progress-cell.yellow { border-color: #b69b31; background: #b69b31; }
         .progress-cell.gray { border-color: #536071; background: #536071; }
-        .player-round, .player-result { margin: 11px 0 0; font-size: .92rem; }
-        .match-message { min-height: 1.3em; }
-        @media (max-width: 520px) { .match-shell { width: min(100% - 24px, 980px); } .match-panel { border-radius: 14px; } .player-card { padding: 13px; } .match-key { min-height: 43px; font-size: .82rem; } .match-key.wide { font-size: .66rem; } .guess-tile { border-width: 1px; } }
+        .player-round, .player-result { margin: 6px 0 0; font-size: .78rem; }
+        .match-message { min-height: 0; margin: 0; }
+        .round-status { color: #e8c9a0; font-size: .8rem; }
+        @media (max-width: 700px) { .match-shell { width: min(100% - 20px, 560px); padding-top: 10px; } .match-layout { grid-template-columns: minmax(0, 1fr); gap: 9px; margin-top: 9px; } .match-info { gap: 8px; } .match-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; } .match-clock-wrap { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 10px; } .match-clock { margin: 0; font-size: clamp(1.75rem, 9vw, 2.5rem); } .match-panel { padding: 10px; border-radius: 12px; } .match-board { width: min(100%, 340px); margin: 8px auto; } .guess-row { gap: 4px; } .match-keyboard { gap: 5px; } .match-key { min-height: 42px; font-size: .82rem; } .match-key.wide { font-size: .68rem; } .player-panel { margin-top: 9px; } .player-grid { gap: 7px; margin-top: 7px; } .player-card { padding: 8px; } .countdown-number { font-size: clamp(2.3rem, 14vw, 4rem); } }
+        @media (max-width: 360px) { .match-header { align-items: flex-start; } .match-header-actions { gap: 5px; } .match-link, .match-button { padding: 7px 8px; font-size: .78rem; } .match-fact { padding: 6px; } .match-fact dd { font-size: .8rem; } .match-key { min-height: 38px; } }
         @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
     </style>
 </head>
@@ -85,34 +102,43 @@
     </div>
     {% endif %}
     {% endwith %}
-    <section class="match-panel">
-        <div class="match-status-line">
-            <strong id="match-status">Підключення до матчу…</strong>
-            <span class="match-muted" id="match-player-count">— гравців</span>
-        </div>
-        <p class="match-message match-muted" id="match-message" role="status" aria-live="polite"></p>
-        <section class="match-countdown" id="match-countdown" aria-live="polite" hidden>
-            <div>
-                <p class="match-muted">Спільний старт через</p>
-                <div class="countdown-number" id="countdown-value">5</div>
+    <div class="match-layout">
+        <aside class="match-panel match-info" aria-label="Інформація про матч">
+            <div class="match-info-title">
+                <strong id="match-status">Підключення…</strong>
+                <span class="match-muted" id="match-player-count">—</span>
             </div>
-        </section>
-        <section id="match-round" hidden>
-            <div class="match-status-line">
-                <h2><span id="round-label">Слово 1/5</span></h2>
-                <span id="round-status" class="match-muted">Раунд активний</span>
+            <dl class="match-facts">
+                <div class="match-fact"><dt>Слово</dt><dd id="round-label">—</dd></div>
+                <div class="match-fact"><dt>Режим</dt><dd id="match-mode-label">—</dd></div>
+                <div class="match-fact"><dt>Спроби</dt><dd>6</dd></div>
+            </dl>
+            <div class="match-clock-wrap" id="match-clock-wrap" hidden>
+                <span class="match-clock-label" id="match-clock-label">Час до кінця</span>
+                <strong class="match-clock" id="match-clock" aria-live="off">—</strong>
             </div>
-            <div class="match-word" id="match-word" aria-label="Поточне слово"></div>
-            <div class="match-clock" id="match-clock" aria-live="off" hidden></div>
-            <p class="match-muted" id="match-mode-note"></p>
-            <div class="match-board" id="match-board" role="group" aria-label="Ваші спроби"></div>
-            <p class="guess-feedback" id="guess-feedback" role="status" aria-live="polite"></p>
-            <div class="match-keyboard" id="match-keyboard" aria-label="Екранна клавіатура"></div>
+            <p class="match-message match-muted" id="match-message" role="status" aria-live="polite"></p>
+        </aside>
+        <section class="match-panel game-panel" aria-label="Ігрове поле">
+            <section class="match-countdown" id="match-countdown" aria-live="polite" hidden>
+                <div>
+                    <div class="countdown-number" id="countdown-value">5</div>
+                </div>
+            </section>
+            <section id="match-round" hidden>
+                <div class="match-status-line">
+                    <h2>PvP Wordle</h2>
+                    <span id="round-status" class="round-status"></span>
+                </div>
+                <div class="match-word" id="match-word" aria-label="Поточне слово"></div>
+                <div class="match-board" id="match-board" role="group" aria-label="Ваші спроби"></div>
+                <p class="guess-feedback" id="guess-feedback" role="status" aria-live="polite"></p>
+                <div class="match-keyboard" id="match-keyboard" aria-label="Екранна клавіатура"></div>
+            </section>
         </section>
-    </section>
-    <section class="match-panel" aria-labelledby="players-title">
+    </div>
+    <section class="match-panel player-panel" aria-labelledby="players-title">
         <h2 id="players-title">Табло гравців</h2>
-        <p class="match-muted">Відображаються лише кольори завершених спроб; введені слова не передаються іншим гравцям.</p>
         <ul class="player-grid" id="match-players" aria-live="polite"></ul>
     </section>
 </main>

@@ -16,7 +16,9 @@
     const roundStatus = document.getElementById("round-status");
     const wordNode = document.getElementById("match-word");
     const clockNode = document.getElementById("match-clock");
-    const modeNote = document.getElementById("match-mode-note");
+    const clockWrap = document.getElementById("match-clock-wrap");
+    const clockLabel = document.getElementById("match-clock-label");
+    const modeLabel = document.getElementById("match-mode-label");
     const playersNode = document.getElementById("match-players");
     const boardNode = document.getElementById("match-board");
     const keyboardNode = document.getElementById("match-keyboard");
@@ -39,6 +41,7 @@
     let transientMessage = "";
     let animateAttemptNumber = null;
     let lastAnimatedAttempt = null;
+    const keyboardLetters = new Map();
 
     function toEpoch(value) {
         return value ? Date.parse(value) : null;
@@ -142,10 +145,40 @@
         return "In progress";
     }
 
+    function formatClock(totalSeconds) {
+        const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+        const minutes = Math.floor(safeSeconds / 60);
+        const seconds = String(safeSeconds % 60).padStart(2, "0");
+        return `${String(minutes).padStart(2, "0")}:${seconds}`;
+    }
+
+    function updateKeyboardColors(state) {
+        const priority = { gray: 1, yellow: 2, green: 3 };
+        const colorsByLetter = new Map();
+        const ownAttempts = Array.isArray(state.my_attempts) ? state.my_attempts : [];
+        ownAttempts.forEach((attempt) => {
+            if (typeof attempt.guess !== "string" || !Array.isArray(attempt.colors)) return;
+            for (let index = 0; index < Math.min(5, attempt.guess.length, attempt.colors.length); index += 1) {
+                const letter = attempt.guess[index].toUpperCase();
+                const color = attempt.colors[index];
+                if (!keyboardLetters.has(letter) || !Object.hasOwn(priority, color)) continue;
+                if (!colorsByLetter.has(letter) || priority[color] > priority[colorsByLetter.get(letter)]) {
+                    colorsByLetter.set(letter, color);
+                }
+            }
+        });
+        keyboardLetters.forEach((button, letter) => {
+            const classes = button.className.split(/\s+/).filter((name) => name && !["green", "yellow", "gray"].includes(name));
+            const color = colorsByLetter.get(letter);
+            if (color) classes.push(color);
+            button.className = classes.join(" ");
+        });
+    }
+
     function renderPlayers(state) {
         const cards = state.players.map((player) => {
             const card = document.createElement("li");
-            card.className = "player-card";
+            card.className = `player-card${player.round_status === "left" ? " left" : ""}`;
             const head = document.createElement("div");
             head.className = "player-head";
             const avatar = document.createElement(player.avatar && /^https:\/\//i.test(player.avatar) ? "img" : "span");
@@ -163,8 +196,9 @@
             const name = document.createElement("strong");
             name.textContent = player.name;
             const presence = document.createElement("span");
-            presence.className = `presence ${player.is_online ? "online" : "offline"}`;
-            presence.textContent = player.is_online ? "Online" : "Offline";
+            const isLeft = player.round_status === "left";
+            presence.className = `presence ${isLeft ? "left" : (player.is_online ? "online" : "offline")}`;
+            presence.textContent = isLeft ? "Left" : (player.is_online ? "Online" : "Offline");
             meta.append(name, presence);
             head.append(avatar, meta);
             const round = document.createElement("p");
@@ -173,6 +207,7 @@
             const result = document.createElement("p");
             result.className = "player-result";
             result.textContent = playerStatusLabel(player);
+            result.hidden = isLeft;
             card.append(head, round, renderProgress(player), result);
             return card;
         });
@@ -185,7 +220,7 @@
         if (state.my_status === "solved") return "Ви відгадали слово. Очікуйте на інших гравців.";
         if (state.my_status === "failed") return "Спроби закінчилися. Очікуйте на інших гравців.";
         if (state.my_status === "expired") return "Час вашого раунду вичерпано. Очікуйте на інших гравців.";
-        return "Введіть слово та натисніть Enter.";
+        return "";
     }
 
     function renderClock() {
@@ -195,12 +230,13 @@
             const remaining = Math.max(0, Math.ceil((scheduledStartMs - estimatedServerNow) / 1000));
             countdownValue.textContent = remaining > 0 ? String(remaining) : "Починаємо";
         }
-        if (lastState.status === "in_progress" && lastState.round.status !== "completed"
-            && deadlineMs !== null && lastState.game_mode === "timer") {
-            const remaining = Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000));
-            const minutes = Math.floor(remaining / 60);
-            const seconds = String(remaining % 60).padStart(2, "0");
-            clockNode.textContent = `${minutes}:${seconds}`;
+        if (lastState.status === "in_progress") {
+            if (lastState.game_mode === "timer" && deadlineMs !== null) {
+                clockNode.textContent = formatClock(Math.ceil((deadlineMs - estimatedServerNow) / 1000));
+            } else if (lastState.game_mode !== "timer") {
+                const startedAtMs = toEpoch(lastState.started_at);
+                if (startedAtMs !== null) clockNode.textContent = formatClock((estimatedServerNow - startedAtMs) / 1000);
+            }
         }
     }
 
@@ -218,35 +254,40 @@
         scheduledStartMs = toEpoch(state.scheduled_start_at);
         deadlineMs = toEpoch(state.round.deadline_at);
         countNode.textContent = `${state.player_count} гравців`;
+        modeLabel.textContent = state.game_mode === "timer" ? "Timer" : "Без обмеження часу";
         renderPlayers(state);
         renderMyBoard(state);
+        updateKeyboardColors(state);
 
         if (state.status === "countdown") {
             statusNode.textContent = "Матч скоро почнеться";
             countdownPanel.hidden = false;
             roundPanel.hidden = true;
-            messageNode.textContent = "Усі гравці мають однаковий серверний час старту.";
+            clockWrap.hidden = true;
+            messageNode.textContent = "";
         } else if (state.status === "in_progress") {
             statusNode.textContent = "Матч триває";
             countdownPanel.hidden = true;
             roundPanel.hidden = false;
             roundLabel.textContent = `Слово ${state.current_round}/${state.words_count}`;
             roundStatus.textContent = state.round.status === "expired" ? "Час вичерпано" :
-                (state.round.status === "completed" ? "Раунд завершено" : "Раунд активний");
+                (state.round.status === "completed" ? "Раунд завершено" : "");
             wordNode.textContent = state.round.word || "";
-            clockNode.hidden = state.game_mode !== "timer" || state.round.status === "completed";
-            modeNote.textContent = state.game_mode === "timer" ? "Спільний час раунду" : "Без обмеження часу";
+            clockWrap.hidden = false;
+            clockLabel.textContent = state.game_mode === "timer" ? "До кінця слова" : "Час матчу";
             messageNode.textContent = roundMessage(state);
             if (!transientMessage) feedbackNode.textContent = "";
         } else if (state.status === "completed") {
             statusNode.textContent = "Матч завершено";
             countdownPanel.hidden = true;
             roundPanel.hidden = true;
+            clockWrap.hidden = true;
             messageNode.textContent = "Матч завершено.";
         } else if (state.status === "cancelled") {
             statusNode.textContent = "Матч скасовано";
             countdownPanel.hidden = true;
             roundPanel.hidden = true;
+            clockWrap.hidden = true;
             messageNode.textContent = "Матч було скасовано.";
         }
         renderClock();
@@ -272,6 +313,7 @@
                 button.className = "match-key";
                 button.textContent = letter;
                 button.dataset.key = letter;
+                keyboardLetters.set(letter, button);
                 button.setAttribute("aria-label", letter);
                 button.addEventListener("mousedown", (event) => event.preventDefault());
                 button.addEventListener("click", () => addLetter(letter));

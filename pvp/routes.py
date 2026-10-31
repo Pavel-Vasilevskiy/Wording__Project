@@ -707,7 +707,6 @@ def start_lobby(public_id):
         match = _create_match(lobby, now)
         match_url = url_for("pvp.match_detail", public_id=match.public_id)
         db.session.commit()
-        flash("Матч створено. Спільний відлік розпочався.", "success")
         return redirect(match_url)
     except SQLAlchemyError:
         db.session.rollback()
