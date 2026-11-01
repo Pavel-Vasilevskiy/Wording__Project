@@ -20,6 +20,8 @@
     const clockLabel = document.getElementById("match-clock-label");
     const modeLabel = document.getElementById("match-mode-label");
     const playersNode = document.getElementById("match-players");
+    const resultsPanel = document.getElementById("match-results");
+    const resultsBody = document.getElementById("match-results-body");
     const boardNode = document.getElementById("match-board");
     const keyboardNode = document.getElementById("match-keyboard");
     const leaveForm = document.getElementById("match-leave-form");
@@ -204,7 +206,8 @@
             head.append(avatar, meta);
             const round = document.createElement("p");
             round.className = "player-round";
-            round.textContent = `Слово ${player.current_round}/${state.words_count} · ${player.attempts_used}/${state.attempts_per_word} спроб`;
+            const score = Number.isInteger(player.score) ? player.score : 0;
+            round.textContent = `Слово ${player.current_round}/${state.words_count} · ${player.attempts_used}/${state.attempts_per_word} спроб · ${score} оч.`;
             const result = document.createElement("p");
             result.className = "player-result";
             result.textContent = playerStatusLabel(player);
@@ -213,6 +216,31 @@
             return card;
         });
         playersNode.replaceChildren(...cards);
+    }
+
+    function renderResults(state) {
+        if (!resultsPanel || !resultsBody) return;
+        const visible = state.status === "completed";
+        resultsPanel.hidden = !visible;
+        if (!visible) return;
+        const rows = (Array.isArray(state.results) ? state.results : []).map((result) => {
+            const row = document.createElement("tr");
+            if (result.status === "left") row.className = "left-player";
+            const playerCell = document.createElement("td");
+            playerCell.textContent = result.name || "Гравець";
+            row.appendChild(playerCell);
+            for (const key of ["green_points", "yellow_points", "time_bonus", "word_solved_bonus", "unused_attempt_bonus"]) {
+                const cell = document.createElement("td");
+                cell.textContent = String(Number.isInteger(result[key]) ? result[key] : 0);
+                row.appendChild(cell);
+            }
+            const totalCell = document.createElement("td");
+            totalCell.className = "result-total";
+            totalCell.textContent = String(Number.isInteger(result.total_score) ? result.total_score : 0);
+            row.appendChild(totalCell);
+            return row;
+        });
+        resultsBody.replaceChildren(...rows);
     }
 
     function roundMessage(state) {
@@ -268,6 +296,7 @@
         countNode.textContent = `${state.player_count} гравців`;
         modeLabel.textContent = state.game_mode === "timer" ? "Timer" : "Без обмеження часу";
         renderPlayers(state);
+        renderResults(state);
         renderMyBoard(state);
         updateKeyboardColors(state);
 

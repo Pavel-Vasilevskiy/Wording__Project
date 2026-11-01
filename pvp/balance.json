@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "letter_points": {
+    "gray": 0,
+    "yellow": 5,
+    "green": 10
+  },
+  "word_solved_bonus": 15,
+  "unused_attempt_bonus": 12,
+  "time_bonus": {
+    "enabled": true,
+    "max_points": 20
+  },
+  "no_time_limit_time_bonus": {
+    "enabled": true,
+    "tiers": [
+      { "under_seconds": 30, "points": 100 },
+      { "under_seconds": 60, "points": 60 },
+      { "under_seconds": 90, "points": 30 },
+      { "under_seconds": 120, "points": 10 }
+    ]
+  }
+}

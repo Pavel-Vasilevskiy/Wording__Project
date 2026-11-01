@@ -1,4 +1,4 @@
-"""Additive SQLite schema upgrades for installations predating PvP settings/presence."""
+"""Additive SQLite schema upgrades for existing PvP installations."""
 
 from sqlalchemy import inspect
 
@@ -21,6 +21,10 @@ _ADDITIVE_COLUMNS = {
     "pvp_match_player": {
         "score": "INTEGER NOT NULL DEFAULT 0",
         "score_frozen_at": "DATETIME",
+        "current_round_started_at": "DATETIME",
+    },
+    "pvp_match_attempt": {
+        "score_breakdown": "TEXT NOT NULL DEFAULT '{}'",
     },
 }
 

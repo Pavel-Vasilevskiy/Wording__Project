@@ -30,7 +30,7 @@ function setup(fetch) {
     const ids = [
         "match-status", "match-player-count", "match-message", "guess-feedback", "match-countdown",
         "countdown-value", "match-round", "round-label", "round-status", "match-word",
-        "match-clock", "match-clock-wrap", "match-clock-label", "match-mode-label", "match-players", "match-board", "match-keyboard", "match-leave-form",
+        "match-clock", "match-clock-wrap", "match-clock-label", "match-mode-label", "match-players", "match-results", "match-results-body", "match-board", "match-keyboard", "match-leave-form",
     ];
     const elements = Object.fromEntries(ids.map((id) => [id, new Element()]));
     elements["match-countdown"].hidden = true;
@@ -236,6 +236,26 @@ test("a server round transition clears the board, partial input, and prior keybo
     assert.equal(elements["round-label"].textContent, "Слово 2/3");
     assert.equal(elements["match-board"].children[0].children.map((cell) => cell.textContent).join(""), "");
     assert.equal(findButton(elements["match-keyboard"], "A").className.includes("green"), false);
+});
+
+test("completed match renders the server-sorted breakdown including frozen Left score without Gray", async () => {
+    const state = playingState(Date.now());
+    state.status = "completed";
+    state.results = [
+        { name: "Top", status: "completed", green_points: 20, yellow_points: 5, time_bonus: 10, word_solved_bonus: 15, unused_attempt_bonus: 2, total_score: 52 },
+        { name: "Left", status: "left", green_points: 10, yellow_points: 5, time_bonus: 0, word_solved_bonus: 15, unused_attempt_bonus: 0, total_score: 30 },
+    ];
+    const { elements } = setup(async () => response(state));
+    await waitTurn();
+    assert.equal(elements["match-results"].hidden, false);
+    const rows = elements["match-results-body"].children;
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].children[0].textContent, "Top");
+    assert.equal(rows[0].children[6].textContent, "52");
+    assert.match(rows[0].children[6].className, /result-total/);
+    assert.equal(rows[1].className, "left-player");
+    assert.equal(rows[1].children[6].textContent, "30");
+    assert.equal(rows[0].children.length, 7);
 });
 
 test("Left player gets a muted red card and a Left pill, separate from Offline", async () => {

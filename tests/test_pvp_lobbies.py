@@ -666,12 +666,16 @@ class PvPLobbyTests(unittest.TestCase):
                 "CREATE TABLE pvp_match_player (id INTEGER PRIMARY KEY, status VARCHAR(16) NOT NULL)"
             ))
             connection.execute(text(
+                "CREATE TABLE pvp_match_attempt (id INTEGER PRIMARY KEY, guess VARCHAR(5) NOT NULL)"
+            ))
+            connection.execute(text(
                 "INSERT INTO pvp_lobby VALUES (1, 'a' || 'a', 9, 'open', '2026-01-01 00:00:00')"
             ))
             connection.execute(text(
                 "INSERT INTO pvp_lobby_member VALUES (1, 9, '2026-01-01 00:00:00')"
             ))
             connection.execute(text("INSERT INTO pvp_match_player VALUES (1, 'active')"))
+            connection.execute(text("INSERT INTO pvp_match_attempt VALUES (1, 'CRANE')"))
 
         upgrade_pvp_schema(engine)
         upgrade_pvp_schema(engine)
@@ -679,6 +683,7 @@ class PvPLobbyTests(unittest.TestCase):
             lobby_columns = {column["name"] for column in inspect(connection).get_columns("pvp_lobby")}
             member_columns = {column["name"] for column in inspect(connection).get_columns("pvp_lobby_member")}
             match_player_columns = {column["name"] for column in inspect(connection).get_columns("pvp_match_player")}
+            match_attempt_columns = {column["name"] for column in inspect(connection).get_columns("pvp_match_attempt")}
             lobby_row = connection.execute(text(
                 "SELECT words_per_match, mode, timer_seconds FROM pvp_lobby WHERE id = 1"
             )).one()
@@ -688,13 +693,19 @@ class PvPLobbyTests(unittest.TestCase):
             player_score = connection.execute(text(
                 "SELECT score, score_frozen_at FROM pvp_match_player WHERE id = 1"
             )).one()
+            attempt_breakdown = connection.execute(text(
+                "SELECT score_breakdown FROM pvp_match_attempt WHERE id = 1"
+            )).scalar_one()
         self.assertTrue({"words_per_match", "mode", "timer_seconds", "settings_version"}.issubset(lobby_columns))
         self.assertTrue({"is_ready", "last_seen_at"}.issubset(member_columns))
         self.assertTrue({"score", "score_frozen_at"}.issubset(match_player_columns))
+        self.assertIn("current_round_started_at", match_player_columns)
+        self.assertIn("score_breakdown", match_attempt_columns)
         self.assertEqual(tuple(lobby_row), (5, "timer", 120))
         self.assertFalse(member_row.is_ready)
         self.assertNotEqual(str(member_row.last_seen_at), "1970-01-01 00:00:00")
         self.assertEqual(tuple(player_score), (0, None))
+        self.assertEqual(attempt_breakdown, "{}")
         self.assertEqual(PvPLobby.query.count(), 0)  # Upgrade used an isolated in-memory database.
         engine.dispose()
 

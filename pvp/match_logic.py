@@ -110,12 +110,14 @@ def advance_no_limit_player(match, player, now):
 
     if player.current_round >= match.words_count:
         player.status = "completed"
+        player.current_round_started_at = None
     else:
         player.current_round += 1
         player.attempts_used = 0
         player.has_solved = False
         player.progress = "[]"
         player.status = "active"
+        player.current_round_started_at = now
         next_round = next((item for item in match.rounds if item.round_number == player.current_round), None)
         if next_round is not None and next_round.status == "waiting":
             next_round.status = "in_progress"
@@ -179,6 +181,10 @@ def advance_match_clock(match, now):
                 match.scheduled_start_at + timedelta(seconds=match.timer_seconds)
                 if match.game_mode == "timer" else None
             )
+        if match.game_mode != "timer":
+            for player in match.players:
+                if player.current_round == 1 and player.status != "left":
+                    player.current_round_started_at = match.scheduled_start_at
         changed = True
 
     if match.status == "in_progress":

@@ -17,6 +17,7 @@ from pvp.models import (
     PvPMatchRound,
 )
 from pvp.routes import pvp_bp
+from pvp.scoring import load_balance_config
 from pvp.schema import upgrade_pvp_schema
 from word_dictionary import EN_US_DICTIONARY, validate_guess
 
@@ -28,6 +29,7 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'wordle_secret_key_2024_with_
 app.config['PORTAL_NAME'] = os.getenv('PORTAL_NAME', 'Ігрова кімната')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///wordle_users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['PVP_BALANCE'] = load_balance_config()
 
 # Initialize extensions
 db.init_app(app)

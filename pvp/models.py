@@ -122,6 +122,7 @@ class PvPMatchPlayer(db.Model):
     last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     status = db.Column(db.String(16), nullable=False, default="active")
     current_round = db.Column(db.Integer, nullable=False, default=1)
+    current_round_started_at = db.Column(db.DateTime)
     attempts_used = db.Column(db.Integer, nullable=False, default=0)
     has_solved = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
     score = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
@@ -180,6 +181,7 @@ class PvPMatchAttempt(db.Model):
     colors = db.Column(db.Text, nullable=False)
     is_correct = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
     submitted_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    score_breakdown = db.Column(db.Text, nullable=False, default="{}", server_default=text("'{}'"))
 
     player = db.relationship("PvPMatchPlayer", back_populates="attempts")
     round = db.relationship("PvPMatchRound", back_populates="attempts")

@@ -44,6 +44,7 @@ from pvp.match_logic import (
     seconds_remaining,
     advance_no_limit_player,
 )
+from pvp.scoring import calculate_attempt_score
 from pvp.presence import (
     HEARTBEAT_INTERVAL_SECONDS,
     cleanup_stale_lobbies,
@@ -163,6 +164,54 @@ def _iso_utc(value):
     return value.isoformat(timespec="milliseconds") + "Z" if value else None
 
 
+def _match_results(match):
+    """Aggregate persisted server breakdowns; never derive scores in the browser."""
+    rows = []
+    for player in match.players:
+        categories = {
+            "green_points": 0,
+            "yellow_points": 0,
+            "time_bonus": 0,
+            "word_solved_bonus": 0,
+            "unused_attempt_bonus": 0,
+        }
+        for attempt in player.attempts:
+            try:
+                breakdown = json.loads(attempt.score_breakdown or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(breakdown, dict):
+                continue
+            awards = breakdown.get("letter_awards", [])
+            if isinstance(awards, list):
+                for award in awards:
+                    if not isinstance(award, dict):
+                        continue
+                    color = award.get("to")
+                    points = award.get("points")
+                    if color in ("green", "yellow") and isinstance(points, int) and not isinstance(points, bool) and points >= 0:
+                        categories[f"{color}_points"] += points
+            for key in ("time_bonus", "word_solved_bonus", "unused_attempt_bonus"):
+                value = breakdown.get(key, 0)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    categories[key] += value
+        rows.append({
+            "name": player.user.name,
+            "avatar": player.user.picture,
+            "status": player.status,
+            **categories,
+            # The persisted aggregate is authoritative, including a frozen Left score.
+            "total_score": player.score,
+            "joined_at": _iso_utc(player.joined_at),
+            "user_id": player.user_id,
+        })
+    rows.sort(key=lambda row: (-row["total_score"], row["joined_at"] or "", row["user_id"]))
+    for row in rows:
+        row.pop("joined_at", None)
+        row.pop("user_id", None)
+    return rows
+
+
 def _create_match(lobby, now):
     sequence = choose_word_sequence(EN_US_DICTIONARY, lobby.words_per_match)
     match = PvPMatch(
@@ -194,6 +243,7 @@ def _create_match(lobby, now):
             last_seen_at=member.last_seen_at,
             status="active",
             current_round=1,
+            current_round_started_at=None,
             attempts_used=0,
             has_solved=False,
             progress="[]",
@@ -245,6 +295,7 @@ def _match_state_payload(match, current_player, now):
             "current_round": player.current_round,
             "attempts_used": player.attempts_used,
             "has_solved": bool(player.has_solved),
+            "score": player.score,
             "progress": color_rows,
         })
 
@@ -299,6 +350,8 @@ def _match_state_payload(match, current_player, now):
         "my_attempts_used": current_player.attempts_used,
         "my_has_solved": bool(current_player.has_solved),
         "my_status": current_player.status,
+        "my_score": current_player.score,
+        "results": _match_results(match) if match.status == "completed" else [],
     }
 
 
@@ -893,6 +946,26 @@ def submit_match_guess(public_id):
         attempt_number = player.attempts_used + 1
         colors = evaluate_guess(normalized_guess.lower(), current_round.word.lower())
         solved = normalized_guess.lower() == current_round.word.lower()
+        previous_attempts = PvPMatchAttempt.query.filter_by(
+            match_id=match.id, player_id=player.id, round_id=current_round.id
+        ).order_by(PvPMatchAttempt.attempt_number.asc()).all()
+        score_breakdown = calculate_attempt_score(
+            previous_attempts,
+            normalized_guess,
+            colors,
+            current_app.config["PVP_BALANCE"],
+            solved=solved,
+            attempt_number=attempt_number,
+            attempts_limit=match.attempts_per_word,
+            game_mode=match.game_mode,
+            now=now,
+            deadline_at=current_round.deadline_at,
+            timer_seconds=match.timer_seconds,
+            word_elapsed_seconds=(
+                max(0.0, (now - player.current_round_started_at).total_seconds())
+                if player.current_round_started_at is not None else None
+            ),
+        )
         terminal_status = "solved" if solved else ("failed" if attempt_number >= match.attempts_per_word else "active")
         attempt = PvPMatchAttempt(
             match_id=match.id,
@@ -904,8 +977,10 @@ def submit_match_guess(public_id):
             colors=json.dumps(colors, separators=(",", ":")),
             is_correct=solved,
             submitted_at=now,
+            score_breakdown=json.dumps(score_breakdown, separators=(",", ":")),
         )
         db.session.add(attempt)
+        player.award_score(score_breakdown["total"])
         player.attempts_used = attempt_number
         player.has_solved = solved
         player.status = terminal_status

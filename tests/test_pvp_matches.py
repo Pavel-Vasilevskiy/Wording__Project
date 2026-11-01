@@ -264,6 +264,99 @@ class PvPMatchTests(unittest.TestCase):
         self.assertFalse(advance_match_clock(match, due + timedelta(days=1)))
         self.assertEqual(round_.status, "in_progress")
 
+    def test_no_limit_personal_word_timer_survives_reload_and_reconnect(self):
+        _, clients, match = self.prepare_words(121, mode="no_limit", guest_nums=(122,))
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        first_word_started = player.current_round_started_at
+        self.assertEqual(first_word_started, match.scheduled_start_at)
+
+        first_solve_at = first_word_started + timedelta(seconds=20)
+        with patch("pvp.routes._utcnow", return_value=first_solve_at):
+            response = self.guess(clients[0], match, "CIGAR")
+        self.assertEqual(response.status_code, 200)
+        next_word_started = first_solve_at
+        db.session.refresh(player)
+        self.assertEqual(player.current_round, 2)
+        self.assertEqual(player.current_round_started_at, next_word_started)
+
+        # Read/reconnect requests must not reset the per-player timer.
+        clients[0].get(f"/pvp/match/{match.public_id}/state")
+        with patch("pvp.routes._utcnow", return_value=next_word_started + timedelta(seconds=50)):
+            self.assertEqual(self.post_existing(clients[0], f"/pvp/match/{match.public_id}/state").status_code, 200)
+        db.session.refresh(player)
+        self.assertEqual(player.current_round_started_at, next_word_started)
+
+        solved_at = next_word_started + timedelta(seconds=60)
+        with patch("pvp.routes._utcnow", return_value=solved_at):
+            response = self.guess(clients[0], match, "CRANE")
+        self.assertEqual(response.status_code, 200)
+        second_attempt = PvPMatchAttempt.query.filter_by(player_id=player.id, attempt_number=1).join(
+            PvPMatchRound
+        ).filter(PvPMatchRound.round_number == 2).one()
+        breakdown = json.loads(second_attempt.score_breakdown)
+        self.assertEqual(breakdown["word_elapsed_seconds"], 60)
+        self.assertEqual(breakdown["time_bonus"], 30)
+
+    def test_completed_match_state_returns_server_aggregated_sorted_results_including_left_score(self):
+        lobby, clients, _ = self.create_match(leader_num=123, guest_nums=(124,))
+        match = PvPMatch.query.one()
+        players = sorted(match.players, key=lambda item: item.user_id)
+        leader, left = players
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        breakdowns = [
+            {
+                "letter_awards": [
+                    {"to": "green", "points": 20},
+                    {"to": "yellow", "points": 5},
+                    {"to": "gray", "points": 99},
+                ],
+                "time_bonus": 10,
+                "word_solved_bonus": 15,
+                "unused_attempt_bonus": 2,
+            },
+            {
+                "letter_awards": [
+                    {"to": "green", "points": 10},
+                    {"to": "yellow", "points": 5},
+                ],
+                "time_bonus": 0,
+                "word_solved_bonus": 15,
+                "unused_attempt_bonus": 0,
+            },
+        ]
+        for player, breakdown, score in ((leader, breakdowns[0], 52), (left, breakdowns[1], 30)):
+            player.score = score
+            db.session.add(PvPMatchAttempt(
+                match_id=match.id,
+                player_id=player.id,
+                round_id=round_.id,
+                attempt_number=1,
+                request_id=str(uuid4()),
+                guess="CRANE",
+                colors=json.dumps(["green"] * 5),
+                is_correct=True,
+                submitted_at=datetime(2026, 1, 1),
+                score_breakdown=json.dumps(breakdown),
+            ))
+        db.session.commit()
+        left.status = "left"
+        left.score_frozen_at = datetime(2026, 1, 1)
+        leader.status = "completed"
+        match.status = "completed"
+        match.completed_at = datetime(2026, 1, 1)
+        db.session.commit()
+
+        state = clients[0].get(f"/pvp/match/{match.public_id}/state").get_json()
+        results = state["results"]
+        self.assertEqual([item["total_score"] for item in results], [52, 30])
+        self.assertEqual(results[0]["green_points"], 20)
+        self.assertEqual(results[0]["yellow_points"], 5)
+        self.assertEqual(results[0]["time_bonus"], 10)
+        self.assertEqual(results[1]["status"], "left")
+        self.assertEqual(results[1]["total_score"], left.score)
+        self.assertNotIn("gray_points", results[0])
+        self.assertNotIn("gray", json.dumps(results).lower())
+
     def test_round_deadline_is_read_only_on_get_then_advances_on_next_post_state(self):
         _, clients, _ = self.create_match(leader_num=13, guest_nums=(14,))
         match = PvPMatch.query.one()
@@ -370,8 +463,14 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(payload["my_status"], "solved")
         attempt = PvPMatchAttempt.query.one()
         self.assertEqual((attempt.guess, attempt.attempt_number, attempt.is_correct), ("CIGAR", 1, True))
+        breakdown = json.loads(attempt.score_breakdown)
+        self.assertEqual(breakdown["letter_points"], 50)
+        self.assertEqual(breakdown["word_solved_bonus"], 15)
+        self.assertEqual(breakdown["unused_attempt_bonus"], 60)
         player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=lobby.leader_id).one()
         self.assertEqual((player.attempts_used, player.status, player.has_solved), (1, "solved", True))
+        self.assertEqual(player.score, breakdown["total"])
+        self.assertEqual(payload["my_score"], player.score)
         self.assertEqual(round_.status, "in_progress")  # The other player still has the round.
         rejected = self.guess(clients[0], match, "array")
         self.assertEqual(rejected.status_code, 409)
@@ -392,6 +491,25 @@ class PvPMatchTests(unittest.TestCase):
         response = self.guess(clients[0], match, "array")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["colors"], ["gray", "yellow", "gray", "green", "gray"])
+
+    def test_timer_bonus_uses_server_time_and_is_persisted_in_attempt_breakdown(self):
+        _, clients, _ = self.create_match(leader_num=261, guest_nums=(262,))
+        match = PvPMatch.query.one()
+        round_ = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        round_.word = "cigar"
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        submitted_at = match.scheduled_start_at + timedelta(seconds=60)
+
+        with patch("pvp.routes._utcnow", return_value=submitted_at):
+            response = self.guess(clients[0], match, "CIGAR")
+
+        self.assertEqual(response.status_code, 200)
+        attempt = PvPMatchAttempt.query.one()
+        breakdown = json.loads(attempt.score_breakdown)
+        self.assertEqual(attempt.submitted_at, submitted_at)
+        self.assertEqual(breakdown["time_bonus"], 10)
+        self.assertEqual(PvPMatchPlayer.query.filter_by(user_id=match.players[0].user_id).one().score, breakdown["total"])
 
     def test_invalid_words_are_not_saved_or_counted_and_guess_length_is_enforced(self):
         _, clients, _ = self.create_match(leader_num=27, guest_nums=(28,))
@@ -415,6 +533,8 @@ class PvPMatchTests(unittest.TestCase):
         request_id = str(uuid4())
 
         first = self.guess(clients[0], match, "array", request_id)
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        saved_score = player.score
         retry = self.guess(clients[0], match, "array", request_id)
         conflict = self.guess(clients[0], match, "crane", request_id)
         self.assertEqual(first.status_code, 200)
@@ -423,6 +543,16 @@ class PvPMatchTests(unittest.TestCase):
         self.assertTrue(retry.get_json()["duplicate"])
         self.assertEqual(conflict.status_code, 409)
         self.assertEqual(PvPMatchAttempt.query.count(), 1)
+        db.session.refresh(player)
+        self.assertEqual(player.score, saved_score)
+        self.assertEqual(json.loads(PvPMatchAttempt.query.one().score_breakdown)["total"], saved_score)
+        # Read-only polling and reloads expose the saved score without awarding it again.
+        for _ in range(3):
+            state = clients[0].get(f"/pvp/match/{match.public_id}/state")
+            self.assertEqual(state.status_code, 200)
+            self.assertEqual(state.get_json()["my_score"], saved_score)
+        db.session.refresh(player)
+        self.assertEqual(player.score, saved_score)
 
     def test_public_progress_exposes_colors_but_only_the_current_player_sees_guess_text(self):
         lobby, clients, _ = self.create_match(leader_num=31, guest_nums=(32,))
@@ -745,6 +875,7 @@ class PvPMatchTests(unittest.TestCase):
         solved = self.guess(remaining_client, match, "CIGAR")
         self.assertEqual(solved.status_code, 200)
         attempt_count = PvPMatchAttempt.query.filter_by(player_id=leaving_player.id).count()
+        leaving_score = leaving_player.score
         remaining_attempt_count = PvPMatchAttempt.query.filter_by(player_id=remaining_player.id).count()
         old_score = remaining_player.score
 
@@ -755,6 +886,8 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual((remaining_player.status, remaining_player.current_round), ("active", 2))
         self.assertEqual(remaining_player.score, old_score)
         self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=leaving_player.id).count(), attempt_count)
+        self.assertEqual(leaving_player.score, leaving_score)
+        self.assertIsNotNone(leaving_player.score_frozen_at)
         self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=remaining_player.id).count(), remaining_attempt_count)
         self.assertIsNotNone(PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=remaining_player.user_id).first())
         public_state = self.post_existing(remaining_client, f"/pvp/match/{match.public_id}/state").get_json()
