@@ -137,6 +137,7 @@
 
     function playerStatusLabel(player) {
         if (player.round_status === "left") return "Left";
+        if (player.round_status === "completed") return "Completed";
         if (player.round_status === "solved") return "Solved";
         if (player.round_status === "failed") return "Failed";
         if (player.round_status === "expired") return "Час вичерпано";
@@ -161,7 +162,7 @@
             for (let index = 0; index < Math.min(5, attempt.guess.length, attempt.colors.length); index += 1) {
                 const letter = attempt.guess[index].toUpperCase();
                 const color = attempt.colors[index];
-                if (!keyboardLetters.has(letter) || !Object.hasOwn(priority, color)) continue;
+                if (!keyboardLetters.has(letter) || !Object.prototype.hasOwnProperty.call(priority, color)) continue;
                 if (!colorsByLetter.has(letter) || priority[color] > priority[colorsByLetter.get(letter)]) {
                     colorsByLetter.set(letter, color);
                 }
@@ -215,8 +216,9 @@
     }
 
     function roundMessage(state) {
+        if (state.my_status === "completed") return "Ви завершили матч.";
         if (state.round.status === "expired") return "Час раунду вичерпано. Відповіді більше не приймаються.";
-        if (state.round.status === "completed") return "Усі гравці завершили перше слово. Очікуємо наступну ітерацію.";
+        if (state.round.status === "completed") return "Слово завершено.";
         if (state.my_status === "solved") return "Ви відгадали слово. Очікуйте на інших гравців.";
         if (state.my_status === "failed") return "Спроби закінчилися. Очікуйте на інших гравців.";
         if (state.my_status === "expired") return "Час вашого раунду вичерпано. Очікуйте на інших гравців.";
@@ -241,6 +243,16 @@
     }
 
     function render(state) {
+        if (lastState && (state.current_round < lastState.current_round
+            || (lastState.status === "completed" && state.status !== "completed"))) return;
+        if (lastState && state.current_round !== lastState.current_round) {
+            currentGuess = "";
+            pendingRequestId = null;
+            submissionUnconfirmed = false;
+            transientMessage = "";
+            animateAttemptNumber = null;
+            lastAnimatedAttempt = null;
+        }
         if (pendingRequestId && Array.isArray(state.my_attempts)
             && state.my_attempts.some((attempt) => attempt.request_id === pendingRequestId)) {
             currentGuess = "";
@@ -381,7 +393,12 @@
                     Accept: "application/json",
                     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
                 },
-                body: new URLSearchParams({ csrf_token: csrfToken, request_id: pendingRequestId, guess: currentGuess }),
+                body: new URLSearchParams({
+                    csrf_token: csrfToken,
+                    request_id: pendingRequestId,
+                    guess: currentGuess,
+                    round_number: String(lastState.current_round),
+                }),
                 cache: "no-store",
                 signal: requestController.signal,
             });

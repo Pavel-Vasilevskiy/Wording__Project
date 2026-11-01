@@ -42,6 +42,7 @@ from pvp.match_logic import (
     safe_color_row,
     safe_progress_rows,
     seconds_remaining,
+    advance_no_limit_player,
 )
 from pvp.presence import (
     HEARTBEAT_INTERVAL_SECONDS,
@@ -203,21 +204,31 @@ def _create_match(lobby, now):
 
 
 def _match_state_payload(match, current_player, now):
+    viewer_round_number = current_player.current_round if match.game_mode != "timer" else match.current_round
     current_round = next(
-        (item for item in match.rounds if item.round_number == match.current_round), None
+        (item for item in match.rounds if item.round_number == viewer_round_number), None
     )
     round_status = current_round.status if current_round else "waiting"
+    if match.game_mode != "timer" and current_player.status in {"solved", "failed", "expired", "completed", "left"}:
+        round_status = current_player.status
     if current_round and current_round.status == "in_progress" and current_round.deadline_at and current_round.deadline_at <= now:
         round_status = "expired"
 
     players = []
     for player in match.players:
         online = player.status != "left" and is_online(player, now)
-        round_status_for_player = player.status
-        if round_status_for_player == "active" and round_status == "expired":
-            round_status_for_player = "expired"
+        player_round_number = (
+            player.current_round
+            if match.game_mode != "timer" or player.status == "left"
+            else match.current_round
+        )
+        player_round = next((item for item in match.rounds if item.round_number == player_round_number), None)
+        round_status_for_player = player.status if player.status in {"left", "completed"} else (
+            player.status if match.game_mode != "timer" and player.status in {"solved", "failed", "expired"}
+            else ("expired" if player.status == "active" and player_round and player_round.status == "expired" else player.status)
+        )
         player_attempts = sorted(
-            (attempt for attempt in player.attempts if attempt.round_id == (current_round.id if current_round else None)),
+            (attempt for attempt in player.attempts if player_round and attempt.round_id == player_round.id),
             key=lambda attempt: attempt.attempt_number,
         )
         color_rows = []
@@ -238,7 +249,7 @@ def _match_state_payload(match, current_player, now):
         })
 
     own_attempts = sorted(
-        (attempt for attempt in current_player.attempts if attempt.round_id == (current_round.id if current_round else None)),
+        (attempt for attempt in current_player.attempts if current_round and attempt.round_id == current_round.id),
         key=lambda attempt: attempt.attempt_number,
     )
     own_color_rows = []
@@ -247,14 +258,14 @@ def _match_state_payload(match, current_player, now):
         if colors is not None:
             own_color_rows.append(colors)
 
-    reveal_first_word = match.status == "in_progress" and current_round is not None
+    reveal_first_word = match.status == "in_progress" and current_round is not None and current_player.status != "left"
     return {
         "public_id": match.public_id,
         "status": match.status,
         "game_mode": match.game_mode,
         "words_count": match.words_count,
         "attempts_per_word": match.attempts_per_word,
-        "current_round": match.current_round,
+        "current_round": viewer_round_number,
         "created_at": _iso_utc(match.created_at),
         "countdown_started_at": _iso_utc(match.countdown_started_at),
         "scheduled_start_at": _iso_utc(match.scheduled_start_at),
@@ -264,7 +275,7 @@ def _match_state_payload(match, current_player, now):
             seconds_remaining(match.scheduled_start_at, now) if match.status == "countdown" else 0
         ),
         "round": {
-            "number": match.current_round,
+            "number": viewer_round_number,
             "status": round_status,
             "word": current_round.word if reveal_first_word else None,
             "started_at": _iso_utc(current_round.started_at) if current_round else None,
@@ -797,8 +808,12 @@ def submit_match_guess(public_id):
     """Validate, score, and persist one private guess with a client idempotency key."""
     _check_csrf()
     request_id = request.form.get("request_id", "")
+    submitted_round_raw = request.form.get("round_number", "")
     if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}", request_id):
         return {"error": "invalid_request_id"}, 400
+    if not re.fullmatch(r"[1-9][0-9]{0,2}", submitted_round_raw):
+        return {"error": "invalid_round_number"}, 400
+    submitted_round = int(submitted_round_raw)
     if not _PUBLIC_ID_RE.fullmatch(public_id or ""):
         return {"error": "match_unavailable"}, 404
     try:
@@ -823,8 +838,9 @@ def submit_match_guess(public_id):
         advance_match_clock(match, now)
         expire_unfinished_players(match)
         complete_round_if_all_players_finished(match, now)
+        player_round_number = player.current_round if match.game_mode != "timer" else match.current_round
         current_round = next(
-            (item for item in match.rounds if item.round_number == match.current_round), None
+            (item for item in match.rounds if item.round_number == player_round_number), None
         )
 
         prior_attempt = PvPMatchAttempt.query.filter_by(
@@ -855,6 +871,19 @@ def submit_match_guess(public_id):
         if player.current_round != current_round.round_number or player.status != "active":
             db.session.commit()
             return {"error": "player_round_finished", "status": player.status}, 409
+        if submitted_round != current_round.round_number:
+            try:
+                archived_history = json.loads(player.round_history or "[]")
+            except (TypeError, ValueError):
+                archived_history = []
+            prior_round = next((
+                item for item in archived_history
+                if isinstance(item, dict) and item.get("round_number") == submitted_round
+            ), None)
+            db.session.commit()
+            if prior_round and prior_round.get("status") == "expired":
+                return {"error": "round_expired"}, 409
+            return {"error": "stale_round", "current_round": current_round.round_number}, 409
 
         normalized_guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
         if validation_error:
@@ -881,6 +910,8 @@ def submit_match_guess(public_id):
         player.has_solved = solved
         player.status = terminal_status
         player.progress = json.dumps(safe_progress_rows(player.progress) + [colors], separators=(",", ":"))
+        if match.game_mode != "timer":
+            advance_no_limit_player(match, player, now)
         complete_round_if_all_players_finished(match, now)
         db.session.commit()
 

@@ -119,6 +119,16 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         return lobby, clients, now
 
+    def prepare_words(self, leader_num, mode="timer", guest_nums=(2,), words=3):
+        lobby, clients, _ = self.create_match(leader_num, guest_nums, words=words, mode=mode)
+        match = PvPMatch.query.one()
+        answers = ("cigar", "crane", "apple")
+        for round_, answer in zip(match.rounds, answers):
+            round_.word = answer
+        db.session.commit()
+        self.start_first_round(match, clients[0])
+        return lobby, clients, match
+
     def start_first_round(self, match, client, now=None):
         due = match.scheduled_start_at
         with patch("pvp.routes._utcnow", return_value=now or due):
@@ -127,11 +137,15 @@ class PvPMatchTests(unittest.TestCase):
         return response.get_json()
 
     def guess(self, client, match, word, request_id=None, **extra):
+        with client.session_transaction() as saved:
+            user_id = int(saved["_user_id"])
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=user_id).one()
         return self.post_existing(
             client,
             f"/pvp/match/{match.public_id}/guess",
             guess=word,
             request_id=request_id or str(uuid4()),
+            round_number=str(player.current_round),
             **extra,
         )
 
@@ -250,7 +264,7 @@ class PvPMatchTests(unittest.TestCase):
         self.assertFalse(advance_match_clock(match, due + timedelta(days=1)))
         self.assertEqual(round_.status, "in_progress")
 
-    def test_round_deadline_expires_idempotently_on_next_post_state(self):
+    def test_round_deadline_is_read_only_on_get_then_advances_on_next_post_state(self):
         _, clients, _ = self.create_match(leader_num=13, guest_nums=(14,))
         match = PvPMatch.query.one()
         endpoint = f"/pvp/match/{match.public_id}/state"
@@ -264,8 +278,11 @@ class PvPMatchTests(unittest.TestCase):
             self.assertEqual(get_state.get_json()["round"]["status"], "expired")
             self.assertEqual(round_.status, "in_progress")  # GET does not mutate.
             response = self.post_existing(clients[0], endpoint)
-            self.assertEqual(response.get_json()["round"]["status"], "expired")
-            self.assertEqual(round_.status, "expired")
+            self.assertEqual(response.get_json()["current_round"], 2)
+            db.session.refresh(round_)
+            db.session.refresh(match)
+            self.assertEqual(round_.status, "completed")
+            self.assertEqual(match.current_round, 2)
             self.assertFalse(advance_match_clock(match, deadline + timedelta(seconds=1)))
 
     def test_no_late_join_or_lobby_settings_change_after_match_creation(self):
@@ -325,7 +342,7 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(client.get(f"/pvp/match/{match.public_id}").status_code, 404)
         self.assertEqual(client.get(f"/pvp/match/{match.public_id}/state").status_code, 404)
         self.assertEqual(client.post(f"/pvp/match/{match.public_id}/state").status_code, 400)
-        denied_guess = self.post(client, f"/pvp/match/{match.public_id}/guess", guess="array", request_id=str(uuid4()))
+        denied_guess = self.post(client, f"/pvp/match/{match.public_id}/guess", guess="array", request_id=str(uuid4()), round_number="1")
         self.assertEqual(denied_guess.status_code, 404)
 
     def test_progress_parser_never_returns_guess_text_or_invalid_rows(self):
@@ -362,7 +379,8 @@ class PvPMatchTests(unittest.TestCase):
         guest_result = self.guess(clients[1], match, "CIGAR")
         self.assertEqual(guest_result.status_code, 200)
         self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().status, "completed")
-        self.assertEqual(match.current_round, 1)  # No automatic transition to the next word.
+        self.assertEqual(match.current_round, 2)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=2).one().status, "in_progress")
 
     def test_duplicate_letters_are_scored_using_remaining_answer_counts(self):
         _, clients, _ = self.create_match(leader_num=25, guest_nums=(26,))
@@ -453,9 +471,11 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.get_json()["error"], "round_expired")
         self.assertEqual(PvPMatchAttempt.query.count(), 0)
-        self.assertEqual(round_.status, "expired")
+        db.session.refresh(round_)
+        self.assertEqual(round_.status, "completed")
         player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
-        self.assertEqual(player.status, "expired")
+        db.session.refresh(player)
+        self.assertEqual((player.status, player.current_round), ("active", 2))
 
     def test_no_time_limit_accepts_valid_guess_without_any_deadline(self):
         _, clients, _ = self.create_match(leader_num=39, guest_nums=(40,), mode="no_limit")
@@ -470,6 +490,152 @@ class PvPMatchTests(unittest.TestCase):
             response = self.guess(clients[0], match, "array")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(PvPMatchAttempt.query.count(), 1)
+
+    def test_timer_advances_all_players_immediately_when_everyone_finishes_early(self):
+        _, clients, match = self.prepare_words(81, guest_nums=(82,))
+        first = self.guess(clients[0], match, "cigar")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json()["current_round"], 1)
+        second = self.guess(clients[1], match, "CIGAR")
+        payload = second.get_json()
+        self.assertEqual(payload["current_round"], 2)
+        self.assertEqual(payload["round"]["word"], "crane")
+        self.assertNotIn("apple", json.dumps(payload).lower())
+        db.session.refresh(match)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().status, "completed")
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=2).one().status, "in_progress")
+        self.assertEqual([(player.current_round, player.attempts_used, player.status) for player in match.players], [(2, 0, "active"), (2, 0, "active")])
+        self.assertTrue(all(json.loads(player.round_history)[0]["round_number"] == 1 for player in match.players))
+        self.assertTrue(all(not response["my_attempts"] for response in [
+            self.post_existing(client, f"/pvp/match/{match.public_id}/state").get_json() for client in clients
+        ]))
+
+    def test_timer_expiration_archives_round_and_starts_next_shared_deadline(self):
+        _, clients, match = self.prepare_words(83, guest_nums=(84,))
+        first_round = PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one()
+        deadline = first_round.deadline_at
+        with patch("pvp.routes._utcnow", return_value=deadline):
+            payload = self.post_existing(clients[0], f"/pvp/match/{match.public_id}/state").get_json()
+        next_round = PvPMatchRound.query.filter_by(match_id=match.id, round_number=2).one()
+        self.assertEqual(payload["current_round"], 2)
+        self.assertEqual(first_round.status, "completed")
+        self.assertEqual(next_round.status, "in_progress")
+        self.assertEqual(next_round.started_at, deadline)
+        self.assertEqual(next_round.deadline_at, deadline + timedelta(seconds=match.timer_seconds))
+        self.assertTrue(all(player.status == "active" and player.attempts_used == 0 for player in match.players))
+        self.assertTrue(all(json.loads(player.round_history)[0]["status"] == "expired" for player in match.players))
+
+    def test_timer_completes_after_the_last_word_and_rejects_more_guesses(self):
+        _, clients, match = self.prepare_words(95, guest_nums=(96,))
+        for answer in ("cigar", "crane", "apple"):
+            for client in clients:
+                response = self.guess(client, match, answer)
+                self.assertEqual(response.status_code, 200)
+        db.session.refresh(match)
+        self.assertEqual((match.status, match.current_round), ("completed", 3))
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=3).one().status, "completed")
+        attempt_count = PvPMatchAttempt.query.count()
+        self.assertEqual(self.guess(clients[0], match, "array").status_code, 409)
+        self.assertEqual(PvPMatchAttempt.query.count(), attempt_count)
+
+    def test_left_player_does_not_block_timer_round_transition(self):
+        _, clients, match = self.prepare_words(85, guest_nums=(86,))
+        self.assertEqual(self.leave_match(clients[1], match).status_code, 302)
+        response = self.guess(clients[0], match, "cigar")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["current_round"], 2)
+        left = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[1].user_id).one()
+        self.assertEqual((left.status, left.current_round, left.attempts_used), ("left", 1, 0))
+
+    def test_concurrent_timer_completion_creates_only_one_next_round_and_reload_is_shared(self):
+        _, clients, match = self.prepare_words(87, guest_nums=(88,))
+        barrier = Barrier(2)
+
+        def solve(client):
+            with client.session_transaction() as saved:
+                token = saved["pvp_csrf_token"]
+            barrier.wait(timeout=5)
+            return client.post(
+                f"/pvp/match/{match.public_id}/guess",
+                data={"csrf_token": token, "request_id": str(uuid4()), "guess": "cigar", "round_number": "1"},
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(solve, clients))
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        db.session.refresh(match)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id).count(), 3)
+        self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=2).count(), 1)
+        self.assertEqual(match.current_round, 2)
+        for client in clients:
+            state = self.post_existing(client, f"/pvp/match/{match.public_id}/state").get_json()
+            self.assertEqual(state["current_round"], 2)
+            self.assertEqual(state["round"]["word"], "crane")
+
+    def test_no_limit_players_advance_independently_and_restore_their_own_word(self):
+        _, clients, match = self.prepare_words(89, mode="no_limit", guest_nums=(90,))
+        response = self.guess(clients[0], match, "cigar")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["current_round"], 2)
+        self.assertEqual(response.get_json()["round"]["word"], "crane")
+        saved_attempts = PvPMatchAttempt.query.count()
+        stale = self.post_existing(
+            clients[0], f"/pvp/match/{match.public_id}/guess",
+            guess="array", request_id=str(uuid4()), round_number="1",
+        )
+        self.assertEqual((stale.status_code, stale.get_json()["error"]), (409, "stale_round"))
+        self.assertEqual(PvPMatchAttempt.query.count(), saved_attempts)
+        guest = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[1].user_id).one()
+        self.assertEqual((guest.current_round, guest.attempts_used), (1, 0))
+        own = self.post_existing(clients[0], f"/pvp/match/{match.public_id}/state").get_json()
+        other = self.post_existing(clients[1], f"/pvp/match/{match.public_id}/state").get_json()
+        self.assertEqual((own["current_round"], own["round"]["word"]), (2, "crane"))
+        self.assertEqual((other["current_round"], other["round"]["word"]), (1, "cigar"))
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=match.players[0].id).count(), 1)
+        self.assertEqual(json.loads(match.players[0].round_history)[0]["progress"], [["green"] * 5])
+
+    def test_no_limit_six_failed_attempts_advance_only_that_player(self):
+        _, clients, match = self.prepare_words(97, mode="no_limit", guest_nums=(98,))
+        for guess in ("array", "crane", "apple", "adore", "agent", "other"):
+            response = self.guess(clients[0], match, guess)
+            self.assertEqual(response.status_code, 200, guess)
+        state = self.post_existing(clients[0], f"/pvp/match/{match.public_id}/state").get_json()
+        self.assertEqual((state["current_round"], state["round"]["word"], state["my_attempts_used"]), (2, "crane", 0))
+        guest = self.post_existing(clients[1], f"/pvp/match/{match.public_id}/state").get_json()
+        self.assertEqual((guest["current_round"], guest["round"]["word"]), (1, "cigar"))
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=match.players[0].user_id).one()
+        db.session.refresh(player)
+        history = json.loads(player.round_history)
+        self.assertEqual((history[0]["status"], len(history[0]["progress"])), ("failed", 6))
+
+    def test_no_limit_last_word_completes_player_and_match_after_other_players_or_leaving_finish(self):
+        lobby, clients, match = self.prepare_words(91, mode="no_limit", guest_nums=(92,))
+        self.assertEqual(self.leave_match(clients[1], match).status_code, 302)
+        for answer in ("cigar", "crane", "apple"):
+            response = self.guess(clients[0], match, answer)
+            self.assertEqual(response.status_code, 200)
+        player = PvPMatchPlayer.query.filter_by(match_id=match.id, user_id=lobby.leader_id).one()
+        self.assertEqual((player.status, player.current_round, match.status), ("completed", 3, "completed"))
+        before = PvPMatchAttempt.query.filter_by(player_id=player.id).count()
+        rejected = self.guess(clients[0], match, "array")
+        self.assertEqual(rejected.status_code, 409)
+        self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=player.id).count(), before)
+        self.assertIsNotNone(match.completed_at)
+        self.assertEqual(clients[0].get(f"/pvp/match/{match.public_id}/state").status_code, 200)
+
+    def test_no_limit_match_completes_only_after_each_non_left_player_finishes(self):
+        _, clients, match = self.prepare_words(93, mode="no_limit", guest_nums=(94,))
+        for answer in ("cigar", "crane", "apple"):
+            self.assertEqual(self.guess(clients[0], match, answer).status_code, 200)
+        db.session.refresh(match)
+        self.assertEqual(match.status, "in_progress")
+        self.assertEqual(self.guess(clients[0], match, "array").status_code, 409)
+        for answer in ("cigar", "crane", "apple"):
+            self.assertEqual(self.guess(clients[1], match, answer).status_code, 200)
+        db.session.refresh(match)
+        self.assertEqual(match.status, "completed")
+        self.assertIsNotNone(match.completed_at)
+        self.assertEqual(PvPMatchPlayer.query.filter_by(match_id=match.id, status="completed").count(), 2)
 
     def test_two_simultaneous_guesses_cannot_exceed_six_attempt_limit(self):
         _, clients, _ = self.create_match(leader_num=37, guest_nums=(38,))
@@ -495,7 +661,7 @@ class PvPMatchTests(unittest.TestCase):
             barrier.wait(timeout=5)
             return client.post(
                 f"/pvp/match/{match.public_id}/guess",
-                data={"csrf_token": token, "request_id": str(uuid4()), "guess": guess},
+                data={"csrf_token": token, "request_id": str(uuid4()), "guess": guess, "round_number": str(match.current_round)},
             ).status_code
 
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -586,7 +752,7 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(exit_response.status_code, 302)
         self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=1).one().status, "completed")
         db.session.refresh(remaining_player)
-        self.assertEqual(remaining_player.status, "solved")
+        self.assertEqual((remaining_player.status, remaining_player.current_round), ("active", 2))
         self.assertEqual(remaining_player.score, old_score)
         self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=leaving_player.id).count(), attempt_count)
         self.assertEqual(PvPMatchAttempt.query.filter_by(player_id=remaining_player.id).count(), remaining_attempt_count)

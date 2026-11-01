@@ -53,17 +53,115 @@ def expire_unfinished_players(match):
 
 
 def complete_round_if_all_players_finished(match, now):
-    """Close the first/current round once every rostered player is terminal."""
+    """Close a shared Timer round and advance the whole roster exactly once."""
     if match.status != "in_progress":
         return False
-    current = next((item for item in match.rounds if item.round_number == match.current_round), None)
-    if current is None or current.status != "in_progress" or not match.players:
+    if match.game_mode != "timer":
+        if all(player.status in {"left", "completed"} for player in match.players):
+            match.status = "completed"
+            match.completed_at = now
+            return True
         return False
-    terminal = {"solved", "failed", "expired", "left"}
-    if all(player.current_round == current.round_number and player.status in terminal for player in match.players):
-        current.status = "completed"
+    current = next((item for item in match.rounds if item.round_number == match.current_round), None)
+    if current is None or current.status not in {"in_progress", "expired"} or not match.players:
+        return False
+    terminal = {"solved", "failed", "expired", "completed"}
+    active_players = [player for player in match.players if player.status != "left"]
+    if any(player.current_round != current.round_number or player.status not in terminal for player in active_players):
+        return False
+
+    current.status = "completed"
+    for player in active_players:
+        _archive_player_round(player, current)
+
+    if not active_players or current.round_number >= match.words_count:
+        match.status = "completed"
+        match.completed_at = now
         return True
-    return False
+
+    next_round = next((item for item in match.rounds if item.round_number == current.round_number + 1), None)
+    if next_round is None:
+        # Keep the match in a terminal state if its pre-generated sequence is corrupt.
+        match.status = "completed"
+        match.completed_at = now
+        return True
+
+    match.current_round = next_round.round_number
+    next_round.status = "in_progress"
+    next_round.started_at = now
+    next_round.deadline_at = now + timedelta(seconds=match.timer_seconds) if match.timer_seconds else None
+    for player in active_players:
+        player.current_round = next_round.round_number
+        player.attempts_used = 0
+        player.has_solved = False
+        player.status = "active"
+        player.progress = "[]"
+    return True
+
+
+def advance_no_limit_player(match, player, now):
+    """Advance one No time limit player immediately after a solved/failed word."""
+    if match.status != "in_progress" or match.game_mode == "timer" or player.status not in {"solved", "failed"}:
+        return False
+    current = next((item for item in match.rounds if item.round_number == player.current_round), None)
+    if current is None:
+        return False
+    _archive_player_round(player, current)
+
+    if player.current_round >= match.words_count:
+        player.status = "completed"
+    else:
+        player.current_round += 1
+        player.attempts_used = 0
+        player.has_solved = False
+        player.progress = "[]"
+        player.status = "active"
+        next_round = next((item for item in match.rounds if item.round_number == player.current_round), None)
+        if next_round is not None and next_round.status == "waiting":
+            next_round.status = "in_progress"
+            next_round.started_at = now
+    match.current_round = max(match.current_round, player.current_round)
+
+    # A shared round is informational in this mode; close it after all remaining
+    # participants have passed it or left. Attempts remain in their own records.
+    for round_ in match.rounds:
+        if round_.status == "in_progress" and all(
+            candidate.status == "left"
+            or candidate.status == "completed"
+            or candidate.current_round > round_.round_number
+            for candidate in match.players
+        ):
+            round_.status = "completed"
+
+    if all(candidate.status in {"left", "completed"} for candidate in match.players):
+        match.status = "completed"
+        match.completed_at = now
+    return True
+
+
+def _archive_player_round(player, round_):
+    """Keep a color-only per-round summary for later history and result screens."""
+    try:
+        history = json.loads(player.round_history or "[]")
+    except (TypeError, ValueError):
+        history = []
+    if not isinstance(history, list):
+        history = []
+    if any(isinstance(item, dict) and item.get("round_number") == round_.round_number for item in history):
+        return
+    attempts = sorted(
+        (attempt for attempt in player.attempts if attempt.round_id == round_.id),
+        key=lambda attempt: attempt.attempt_number,
+    )
+    history.append({
+        "round_number": round_.round_number,
+        "status": player.status,
+        "progress": [
+            colors for attempt in attempts
+            if (colors := safe_color_row(attempt.colors)) is not None
+        ],
+    })
+    player.round_history = json.dumps(history, separators=(",", ":"))
 
 
 def advance_match_clock(match, now):

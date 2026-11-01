@@ -214,6 +214,30 @@ test("timer and no-limit clocks are based on server timestamps and resume after 
     assert.equal(reloaded.elements["match-clock"].textContent, "02:35");
 });
 
+test("a server round transition clears the board, partial input, and prior keyboard colors", async () => {
+    const now = Date.now();
+    let state = playingState(now, [
+        { attempt_number: 1, guess: "ARRAY", colors: ["green", "gray", "gray", "gray", "gray"] },
+    ]);
+    const { elements, listeners, timers } = setup(async () => response(state));
+    await waitTurn();
+    for (const letter of "AB") sendKey(listeners.keydown, letter);
+    assert.equal(findButton(elements["match-keyboard"], "A").className.includes("green"), true);
+
+    state = playingState(now + 2000);
+    state.current_round = 2;
+    state.round.number = 2;
+    state.round.word = "CRANE";
+    const poll = [...timers.entries()].find(([, timer]) => timer.delay === 1500);
+    assert.ok(poll);
+    timers.delete(poll[0]);
+    poll[1].callback();
+    await waitTurn();
+    assert.equal(elements["round-label"].textContent, "Слово 2/3");
+    assert.equal(elements["match-board"].children[0].children.map((cell) => cell.textContent).join(""), "");
+    assert.equal(findButton(elements["match-keyboard"], "A").className.includes("green"), false);
+});
+
 test("Left player gets a muted red card and a Left pill, separate from Offline", async () => {
     const state = playingState(Date.now());
     state.players = [{
