@@ -19,10 +19,11 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 
-from models import db
+from models import User, db
 from pvp.models import (
     PvPLobby,
     PvPLobbyKickNotice,
@@ -30,7 +31,9 @@ from pvp.models import (
     PvPMatch,
     PvPMatchAttempt,
     PvPMatchPlayer,
+    PvPMatchResult,
     PvPMatchRound,
+    PvPPlayerStats,
 )
 from pvp.match_logic import (
     COUNTDOWN_SECONDS,
@@ -45,6 +48,7 @@ from pvp.match_logic import (
     advance_no_limit_player,
 )
 from pvp.scoring import calculate_attempt_score
+from pvp.results import persist_completed_match_results
 from pvp.presence import (
     HEARTBEAT_INTERVAL_SECONDS,
     cleanup_stale_lobbies,
@@ -63,10 +67,78 @@ MIN_TIMER_SECONDS = 30
 MAX_TIMER_SECONDS = 600
 _PUBLIC_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 logger = logging.getLogger(__name__)
+LEADERBOARD_PAGE_SIZE = 20
+LEADERBOARD_QUERY_MAX_LENGTH = 50
 
 
 def _utcnow():
     return datetime.utcnow()
+
+
+@pvp_bp.route("/leaderboard", methods=["GET"])
+def global_leaderboard():
+    """Public, paginated PvP leaderboard with ranks computed before filtering."""
+    search = request.args.get("q", "")
+    if not isinstance(search, str):
+        search = ""
+    search = search.strip()[:LEADERBOARD_QUERY_MAX_LENGTH]
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+
+    rank_order = (
+        PvPPlayerStats.total_score.desc(),
+        PvPPlayerStats.wins.desc(),
+        PvPPlayerStats.best_match_score.desc(),
+        PvPPlayerStats.user_id.asc(),
+    )
+    ranked = db.session.query(
+        PvPPlayerStats.user_id.label("user_id"),
+        User.name.label("name"),
+        User.picture.label("picture"),
+        PvPPlayerStats.total_score.label("total_score"),
+        PvPPlayerStats.matches_played.label("matches_played"),
+        PvPPlayerStats.wins.label("wins"),
+        PvPPlayerStats.best_match_score.label("best_match_score"),
+        func.row_number().over(order_by=rank_order).label("rank"),
+    ).join(User, User.id == PvPPlayerStats.user_id).filter(
+        PvPPlayerStats.matches_played > 0
+    ).subquery()
+
+    visible_query = db.session.query(ranked)
+    if search:
+        # Escape LIKE metacharacters so the query is a literal substring search.
+        escaped = search.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        visible_query = visible_query.filter(func.lower(ranked.c.name).like(f"%{escaped}%", escape="\\"))
+    total_count = visible_query.count()
+    total_pages = max(1, (total_count + LEADERBOARD_PAGE_SIZE - 1) // LEADERBOARD_PAGE_SIZE)
+    page = min(page, total_pages)
+    players = visible_query.order_by(ranked.c.rank).offset(
+        (page - 1) * LEADERBOARD_PAGE_SIZE
+    ).limit(LEADERBOARD_PAGE_SIZE).all()
+
+    own_player = None
+    own_has_stats = False
+    own_on_page = False
+    if current_user.is_authenticated:
+        own_player = db.session.query(ranked).filter_by(user_id=current_user.id).first()
+        own_has_stats = own_player is not None
+        own_on_page = any(row.user_id == current_user.id for row in players)
+
+    return render_template(
+        "pvp_leaderboard.html",
+        players=players,
+        search=search,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count,
+        page_size=LEADERBOARD_PAGE_SIZE,
+        own_player=own_player,
+        own_has_stats=own_has_stats,
+        own_on_page=own_on_page,
+        query_args={"q": search} if search else {},
+    )
 
 
 def _csrf_token():
@@ -166,6 +238,28 @@ def _iso_utc(value):
 
 def _match_results(match):
     """Aggregate persisted server breakdowns; never derive scores in the browser."""
+    snapshots = PvPMatchResult.query.filter_by(match_id=match.id).all()
+    if snapshots:
+        snapshots.sort(key=lambda result: (
+            result.place is None,
+            result.place if result.place is not None else 0,
+            -result.final_score,
+            result.user_id,
+        ))
+        return [{
+            "name": result.user.name,
+            "avatar": result.user.picture,
+            "status": result.participation_status,
+            "place": result.place,
+            "is_winner": bool(result.is_winner),
+            "green_points": result.green_points,
+            "yellow_points": result.yellow_points,
+            "time_bonus": result.time_bonus,
+            "word_solved_bonus": result.word_solved_bonus,
+            "unused_attempt_bonus": result.unused_attempt_bonus,
+            "total_score": result.final_score,
+        } for result in snapshots]
+
     rows = []
     for player in match.players:
         categories = {
@@ -210,6 +304,11 @@ def _match_results(match):
         row.pop("joined_at", None)
         row.pop("user_id", None)
     return rows
+
+
+def _persist_new_match_completion(match, was_completed, now):
+    if not was_completed and match.status == "completed":
+        persist_completed_match_results(match, match.completed_at or now)
 
 
 def _create_match(lobby, now):
@@ -838,12 +937,14 @@ def match_state(public_id):
                 db.session.rollback()
             return {"error": "match_left"}, 410
 
+        was_completed = match.status == "completed"
         now = _utcnow()
         if request.method == "POST":
             player.last_seen_at = now
             advance_match_clock(match, now)
             expire_unfinished_players(match)
             complete_round_if_all_players_finished(match, now)
+            _persist_new_match_completion(match, was_completed, now)
             db.session.commit()
         payload = _match_state_payload(match, player, now)
         result = jsonify(payload)
@@ -875,6 +976,7 @@ def submit_match_guess(public_id):
         if match is None:
             db.session.rollback()
             return {"error": "match_unavailable"}, 404
+        was_completed = match.status == "completed"
         player = PvPMatchPlayer.query.filter_by(
             match_id=match.id, user_id=current_user.id
         ).first()
@@ -891,6 +993,7 @@ def submit_match_guess(public_id):
         advance_match_clock(match, now)
         expire_unfinished_players(match)
         complete_round_if_all_players_finished(match, now)
+        _persist_new_match_completion(match, was_completed, now)
         player_round_number = player.current_round if match.game_mode != "timer" else match.current_round
         current_round = next(
             (item for item in match.rounds if item.round_number == player_round_number), None
@@ -988,6 +1091,7 @@ def submit_match_guess(public_id):
         if match.game_mode != "timer":
             advance_no_limit_player(match, player, now)
         complete_round_if_all_players_finished(match, now)
+        _persist_new_match_completion(match, was_completed, now)
         db.session.commit()
 
         payload = _match_state_payload(match, player, now)
@@ -1020,6 +1124,7 @@ def leave_match(public_id):
             flash("Матч більше не існує.", "info")
             return redirect(url_for("pvp.lobby_list"))
 
+        was_completed = match.status == "completed"
         player = PvPMatchPlayer.query.filter_by(
             match_id=match.id, user_id=current_user.id
         ).first()
@@ -1044,6 +1149,7 @@ def leave_match(public_id):
             db.session.delete(membership)
 
         complete_round_if_all_players_finished(match, now)
+        _persist_new_match_completion(match, was_completed, now)
         db.session.commit()
         flash(
             "Ви вже покинули цей матч. Ваші результати збережені." if already_left

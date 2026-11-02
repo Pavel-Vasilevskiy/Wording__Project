@@ -38,7 +38,10 @@
 <main class="pvp-shell">
     <nav class="pvp-nav" aria-label="Навігація">
         <a href="{{ url_for('index') }}">← До всіх ігор</a>
-        <a href="{{ url_for('wordle') }}">Classic Wordle</a>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <a href="{{ url_for('pvp.global_leaderboard') }}">🏆 Рейтинг PvP</a>
+            <a href="{{ url_for('wordle') }}">Classic Wordle</a>
+        </div>
     </nav>
     <section class="pvp-panel" id="pvp-lobby-list-page"
              data-refresh-url="{{ url_for('pvp.lobby_list_state') }}"

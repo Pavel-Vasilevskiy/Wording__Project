@@ -17,7 +17,9 @@ from pvp.models import (
     PvPMatch,
     PvPMatchAttempt,
     PvPMatchPlayer,
+    PvPMatchResult,
     PvPMatchRound,
+    PvPPlayerStats,
 )
 from pvp.presence import OFFLINE_AFTER_SECONDS, cleanup_stale_lobbies
 from word_dictionary import EN_US_DICTIONARY
@@ -664,6 +666,66 @@ class PvPMatchTests(unittest.TestCase):
         db.session.refresh(match)
         self.assertEqual((match.status, match.current_round), ("completed", 3))
         self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=3).one().status, "completed")
+        saved_results = PvPMatchResult.query.filter_by(match_id=match.id).all()
+        self.assertEqual(len(saved_results), 2)
+        for result in saved_results:
+            self.assertEqual(result.final_score, PvPMatchPlayer.query.filter_by(
+                match_id=match.id, user_id=result.user_id
+            ).one().score)
+            self.assertEqual((result.words_solved, result.total_attempts, result.completed_words), (3, 3, 3))
+            self.assertEqual(result.green_points, 140)
+            self.assertEqual(
+                result.final_score,
+                result.green_points + result.yellow_points + result.time_bonus
+                + result.word_solved_bonus + result.unused_attempt_bonus,
+            )
+            stats = db.session.get(PvPPlayerStats, result.user_id)
+            self.assertEqual((stats.matches_played, stats.total_score, stats.words_solved), (1, result.final_score, 3))
+            self.assertEqual(stats.total_attempts, 3)
+            self.assertEqual(stats.solved_words_count, 3)
+            self.assertEqual(stats.average_attempts_per_solved_word, 1)
+            self.assertEqual(stats.best_match_score, result.final_score)
+
+        # Polling a completed match returns its immutable snapshot and does not add stats again.
+        saved_snapshot = [(item.user_id, item.final_score, item.place, item.is_winner, item.score_breakdown) for item in saved_results]
+        original_balance = app.config["PVP_BALANCE"]
+        changed_balance = json.loads(json.dumps(original_balance))
+        changed_balance["time_bonus"]["max_points"] = 9999
+        app.config["PVP_BALANCE"] = changed_balance
+        try:
+            for client in clients:
+                state = self.post_existing(client, f"/pvp/match/{match.public_id}/state").get_json()
+                self.assertEqual(state["status"], "completed")
+                self.assertEqual(len(state["results"]), 2)
+                self.assertEqual(
+                    {result["total_score"] for result in state["results"]},
+                    {result.final_score for result in saved_results},
+                )
+        finally:
+            app.config["PVP_BALANCE"] = original_balance
+        self.assertEqual(PvPMatchResult.query.filter_by(match_id=match.id).count(), 2)
+        self.assertEqual(
+            [(item.user_id, item.final_score, item.place, item.is_winner, item.score_breakdown)
+             for item in PvPMatchResult.query.filter_by(match_id=match.id).all()],
+            saved_snapshot,
+        )
+        for item in saved_results:
+            stats = db.session.get(PvPPlayerStats, item.user_id)
+            self.assertEqual(stats.matches_played, 1)
+            self.assertEqual(stats.wins, int(item.is_winner))
+        barrier = Barrier(2)
+
+        def simultaneous_poll(client):
+            with app.app_context():
+                barrier.wait(timeout=5)
+                return self.post_existing(client, f"/pvp/match/{match.public_id}/state").status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            self.assertEqual(list(executor.map(simultaneous_poll, clients)), [200, 200])
+        db.session.remove()
+        self.assertEqual(PvPMatchResult.query.filter_by(match_id=match.id).count(), 2)
+        for result in PvPMatchResult.query.filter_by(match_id=match.id).all():
+            self.assertEqual(db.session.get(PvPPlayerStats, result.user_id).matches_played, 1)
         attempt_count = PvPMatchAttempt.query.count()
         self.assertEqual(self.guess(clients[0], match, "array").status_code, 409)
         self.assertEqual(PvPMatchAttempt.query.count(), attempt_count)
@@ -766,6 +828,82 @@ class PvPMatchTests(unittest.TestCase):
         self.assertEqual(match.status, "completed")
         self.assertIsNotNone(match.completed_at)
         self.assertEqual(PvPMatchPlayer.query.filter_by(match_id=match.id, status="completed").count(), 2)
+        self.assertEqual(PvPMatchResult.query.filter_by(match_id=match.id).count(), 2)
+
+    def test_tied_active_players_both_win_and_left_player_keeps_score_without_place(self):
+        _, _, match = self.create_match(leader_num=151, guest_nums=(152, 153))
+        match = PvPMatch.query.one()
+        players = sorted(match.players, key=lambda item: item.user_id)
+        left, winner_a, winner_b = players
+        left.score = 99
+        winner_a.score = 50
+        winner_b.score = 50
+        match.status = "completed"
+        match.completed_at = datetime(2026, 2, 1)
+        db.session.commit()
+        left.status = "left"
+        left.score_frozen_at = datetime(2026, 2, 1)
+        winner_a.status = "completed"
+        winner_b.status = "completed"
+
+        from pvp.results import persist_completed_match_results
+        self.assertTrue(persist_completed_match_results(match, match.completed_at))
+        self.assertFalse(persist_completed_match_results(match, match.completed_at))
+        db.session.commit()
+
+        results = PvPMatchResult.query.filter_by(match_id=match.id).all()
+        left_result = next(result for result in results if result.user_id == left.user_id)
+        winners = [result for result in results if result.is_winner]
+        self.assertEqual(left_result.final_score, 99)
+        self.assertEqual(left_result.participation_status, "left")
+        self.assertIsNone(left_result.place)
+        self.assertEqual({result.user_id for result in winners}, {winner_a.user_id, winner_b.user_id})
+        self.assertEqual({result.place for result in winners}, {1})
+        self.assertEqual(db.session.get(PvPPlayerStats, left.user_id).wins, 0)
+        self.assertEqual(db.session.get(PvPPlayerStats, winner_a.user_id).wins, 1)
+        self.assertEqual(db.session.get(PvPPlayerStats, winner_b.user_id).wins, 1)
+
+    def test_failed_completion_transaction_can_be_retried_without_partial_stats(self):
+        _, clients, match = self.prepare_words(161, mode="no_limit", guest_nums=(162,))
+        self.assertEqual(self.leave_match(clients[1], match).status_code, 302)
+        for answer in ("cigar", "crane"):
+            self.assertEqual(self.guess(clients[0], match, answer).status_code, 200)
+
+        from sqlalchemy.exc import OperationalError
+        with patch.object(db.session, "commit", side_effect=OperationalError("COMMIT", {}, Exception("simulated failure"))):
+            failed = self.guess(clients[0], match, "apple")
+        self.assertEqual(failed.status_code, 503)
+        db.session.remove()
+        self.assertEqual(PvPMatch.query.one().status, "in_progress")
+        self.assertEqual(PvPMatchResult.query.count(), 0)
+        self.assertEqual(PvPPlayerStats.query.count(), 0)
+
+        retried = self.guess(clients[0], PvPMatch.query.one(), "apple")
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(PvPMatch.query.one().status, "completed")
+        self.assertEqual(PvPMatchResult.query.count(), 2)
+        self.assertEqual(PvPPlayerStats.query.count(), 2)
+        self.assertEqual(PvPPlayerStats.query.filter_by(matches_played=1).count(), 2)
+
+    def test_match_with_only_left_players_has_no_winner(self):
+        self.create_match(leader_num=171, guest_nums=(172,))
+        match = PvPMatch.query.one()
+        players = list(match.players)
+        for player in players:
+            player.score = 40 + player.user_id
+        match.status = "completed"
+        match.completed_at = datetime(2026, 2, 2)
+        db.session.commit()
+        for player in players:
+            player.status = "left"
+            player.score_frozen_at = datetime(2026, 2, 2)
+
+        from pvp.results import persist_completed_match_results
+        persist_completed_match_results(match, match.completed_at)
+        db.session.commit()
+
+        self.assertEqual(PvPMatchResult.query.filter_by(match_id=match.id, is_winner=True).count(), 0)
+        self.assertEqual(PvPPlayerStats.query.filter(PvPPlayerStats.wins > 0).count(), 0)
 
     def test_two_simultaneous_guesses_cannot_exceed_six_attempt_limit(self):
         _, clients, _ = self.create_match(leader_num=37, guest_nums=(38,))

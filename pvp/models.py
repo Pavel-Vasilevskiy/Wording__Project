@@ -89,6 +89,9 @@ class PvPMatch(db.Model):
         "PvPMatchPlayer", back_populates="match", cascade="all, delete-orphan",
         order_by="(PvPMatchPlayer.joined_at, PvPMatchPlayer.user_id)",
     )
+    results = db.relationship(
+        "PvPMatchResult", back_populates="match", order_by="PvPMatchResult.place"
+    )
 
 
 class PvPMatchRound(db.Model):
@@ -185,3 +188,65 @@ class PvPMatchAttempt(db.Model):
 
     player = db.relationship("PvPMatchPlayer", back_populates="attempts")
     round = db.relationship("PvPMatchRound", back_populates="attempts")
+
+
+class PvPMatchResult(db.Model):
+    """Immutable per-player result snapshot written once when a match completes."""
+
+    __tablename__ = "pvp_match_result"
+    __table_args__ = (
+        db.UniqueConstraint("match_id", "user_id", name="uq_pvp_match_result_user"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, db.ForeignKey("pvp_match.id", ondelete="RESTRICT"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    game_mode = db.Column(db.String(20), nullable=False)
+    words_count = db.Column(db.Integer, nullable=False)
+    final_score = db.Column(db.Integer, nullable=False)
+    place = db.Column(db.Integer)
+    is_winner = db.Column(db.Boolean, nullable=False, default=False, server_default=text("0"))
+    words_solved = db.Column(db.Integer, nullable=False, default=0)
+    total_attempts = db.Column(db.Integer, nullable=False, default=0)
+    completed_words = db.Column(db.Integer, nullable=False, default=0)
+    green_points = db.Column(db.Integer, nullable=False, default=0)
+    yellow_points = db.Column(db.Integer, nullable=False, default=0)
+    time_bonus = db.Column(db.Integer, nullable=False, default=0)
+    word_solved_bonus = db.Column(db.Integer, nullable=False, default=0)
+    unused_attempt_bonus = db.Column(db.Integer, nullable=False, default=0)
+    participation_status = db.Column(db.String(16), nullable=False)
+    score_breakdown = db.Column(db.Text, nullable=False, default="{}", server_default=text("'{}'"))
+    finalized_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    match = db.relationship("PvPMatch", back_populates="results")
+    user = db.relationship("User")
+
+
+@event.listens_for(PvPMatchResult, "before_update")
+@event.listens_for(PvPMatchResult, "before_delete")
+def _keep_match_result_immutable(_mapper, _connection, _result):
+    raise ValueError("A finalized PvP match result is immutable")
+
+
+class PvPPlayerStats(db.Model):
+    """Lifetime aggregate PvP statistics for one account."""
+
+    __tablename__ = "pvp_player_stats"
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    matches_played = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    wins = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    total_score = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    words_solved = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    total_attempts = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    solved_words_count = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    best_match_score = db.Column(db.Integer, nullable=False, default=0, server_default=text("0"))
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship("User")
+
+    @property
+    def average_attempts_per_solved_word(self):
+        if self.solved_words_count <= 0:
+            return 0
+        return self.total_attempts / self.solved_words_count

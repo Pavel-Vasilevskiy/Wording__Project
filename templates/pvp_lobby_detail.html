@@ -46,10 +46,13 @@
 </head>
 <body class="pvp-page">
 <main class="pvp-shell">
-    <form class="pvp-return-form" method="post" action="{{ url_for('pvp.leave_lobby', public_id=lobby.public_id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="pvp-link" type="submit">← До списку лобі</button>
-    </form>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <form class="pvp-return-form" method="post" action="{{ url_for('pvp.leave_lobby', public_id=lobby.public_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="pvp-link" type="submit">← До списку лобі</button>
+        </form>
+        <a class="pvp-link" href="{{ url_for('pvp.global_leaderboard') }}">🏆 Рейтинг PvP</a>
+    </div>
     <section class="pvp-panel" data-pvp-lobby-state
              data-state-url="{{ url_for('pvp.lobby_state', public_id=lobby.public_id) }}"
              data-heartbeat-url="{{ url_for('pvp.lobby_heartbeat', public_id=lobby.public_id) }}"
