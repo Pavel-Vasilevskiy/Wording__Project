@@ -39,19 +39,46 @@
         .leaderboard-pagination a { color: #f8fafc; }
         .leaderboard-pagination a[aria-disabled="true"] { opacity: .45; pointer-events: none; }
         .leaderboard-empty { padding: 24px 8px; text-align: center; }
+        .mobile-leaderboard { display: none; }
         @media (max-width: 620px) {
             .leaderboard-shell { width: min(100% - 24px, 1040px); }
-            .leaderboard-table thead { display: none; }
-            .leaderboard-table, .leaderboard-table tbody, .leaderboard-table tr, .leaderboard-table td { display: block; width: 100%; }
-            .leaderboard-table tr { position: relative; margin: 10px 0; padding: 10px 12px; border: 1px solid #445875; border-radius: 12px; }
-            .leaderboard-table td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0; border: 0; text-align: right !important; white-space: normal; }
-            .leaderboard-table td::before { content: attr(data-label); color: #bdc9dc; font-size: .82rem; }
-            .leaderboard-table td:nth-child(2) { justify-content: flex-start; }
-            .leaderboard-table td:nth-child(2)::before { content: none; }
-            .leaderboard-table .rank-cell { position: absolute; top: 12px; right: 12px; width: auto; }
+            .leaderboard-scroll { display: none; }
+            .mobile-leaderboard { display: grid; gap: 7px; }
+            .mobile-player { min-width: 0; overflow: hidden; border: 1px solid #445875; border-radius: 11px; background: rgba(16,24,39,.56); }
+            .mobile-player.rank-1 { border-color: #b89b45; background: rgba(119,94,31,.17); }
+            .mobile-player.rank-2 { border-color: #8293a8; background: rgba(130,147,168,.12); }
+            .mobile-player.rank-3 { border-color: #a8774d; background: rgba(168,119,77,.13); }
+            .mobile-summary { display: grid; grid-template-columns: 34px 34px minmax(0, 1fr) auto 18px; align-items: center; gap: 8px; min-height: 62px; padding: 8px 10px; cursor: pointer; list-style: none; }
+            .mobile-summary::-webkit-details-marker { display: none; }
+            .mobile-summary::marker { content: ""; }
+            .mobile-summary:focus-visible { outline: 3px solid #f6d365; outline-offset: -3px; border-radius: 10px; }
+            .mobile-rank { color: #dce6f3; font-weight: 800; font-variant-numeric: tabular-nums; }
+            .rank-1 .mobile-rank { color: #f6d365; }
+            .rank-2 .mobile-rank { color: #d7e0eb; }
+            .rank-3 .mobile-rank { color: #d9a477; }
+            .mobile-player .player-avatar, .mobile-player .player-fallback { width: 32px; height: 32px; flex-basis: 32px; }
+            .mobile-identity { display: grid; min-width: 0; gap: 3px; }
+            .mobile-nickname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; font-weight: 700; }
+            .mobile-meta { color: #bdc9dc; font-size: .72rem; white-space: nowrap; }
+            .mobile-score { color: #a9df9c; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+            .mobile-chevron { color: #bdc9dc; transition: transform 160ms ease; }
+            .mobile-player[open] .mobile-chevron { transform: rotate(180deg); }
+            .mobile-details { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
+            .mobile-player[open] .mobile-details { grid-template-rows: 1fr; }
+            .mobile-details-inner { min-height: 0; overflow: hidden; }
+            .mobile-details-content { padding: 0 12px 11px 94px; color: #bdc9dc; font-size: .82rem; }
+            .mobile-details-content strong { color: #f8fafc; }
             .leaderboard-search { align-items: stretch; }
             .leaderboard-search button { padding: 0 12px; }
         }
+        @media (max-width: 370px) {
+            .mobile-summary { grid-template-columns: 29px 30px minmax(0, 1fr) auto 14px; gap: 5px; padding: 7px; }
+            .mobile-player .player-avatar, .mobile-player .player-fallback { width: 29px; height: 29px; flex-basis: 29px; }
+            .mobile-score { font-size: .88rem; }
+            .mobile-meta { font-size: .67rem; }
+            .mobile-details-content { padding-left: 76px; }
+        }
+        @media (prefers-reduced-motion: reduce) { .mobile-details, .mobile-chevron { transition: none; } }
     </style>
 </head>
 <body class="pvp-page">
@@ -90,6 +117,23 @@
                 {% endfor %}
                 </tbody>
             </table>
+        </div>
+        <div class="mobile-leaderboard" aria-label="Рейтинг гравців для мобільних пристроїв">
+            {% for player in players %}
+            <details class="mobile-player rank-{{ player.rank if player.rank <= 3 else 'other' }}">
+                <summary class="mobile-summary">
+                    <span class="mobile-rank">#{{ player.rank }}</span>
+                    {% if player.picture %}<img class="player-avatar" src="{{ player.picture }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="player-fallback" aria-hidden="true">{{ player.name[:1]|upper or '?' }}</span>{% endif %}
+                    <span class="mobile-identity">
+                        <span class="mobile-nickname">{{ player.name or 'Гравець' }}</span>
+                        <span class="mobile-meta">{{ player.matches_played }} матчів · {{ player.wins }} перемог</span>
+                    </span>
+                    <span class="mobile-score">{{ player.total_score }} оч.</span>
+                    <span class="mobile-chevron" aria-hidden="true">⌄</span>
+                </summary>
+                <div class="mobile-details"><div class="mobile-details-inner"><div class="mobile-details-content">Найкращий результат за матч: <strong>{{ player.best_match_score }}</strong></div></div></div>
+            </details>
+            {% endfor %}
         </div>
         {% elif search %}
             <p class="leaderboard-empty leaderboard-muted">Гравців із таким нікнеймом не знайдено.</p>

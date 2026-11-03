@@ -137,7 +137,7 @@ class PvPGlobalLeaderboardTests(unittest.TestCase):
         response = self.page(client, page="1")
         body = response.get_data(as_text=True)
         self.assertIn("Твоє місце: <b>#23</b>", body)
-        self.assertEqual(body.count("Rank Player 23"), 1)
+        self.assertEqual(body.count('class="own-rank"'), 1)
         self.assertNotIn("private-23@example.test", body)
         self.assertNotIn(users[-1].google_id, body)
 
@@ -145,7 +145,7 @@ class PvPGlobalLeaderboardTests(unittest.TestCase):
         self.login(on_page_client, users[0])
         on_page = self.page(on_page_client, page="1").get_data(as_text=True)
         self.assertNotIn("Твоє місце", on_page)
-        self.assertEqual(on_page.count("Rank Player 01"), 1)
+        self.assertNotIn('class="own-rank"', on_page)
 
     def test_nickname_avatar_fallback_and_navigation_links_render(self):
         self.add_player(1, 20, name="Friendly Player", picture="https://example.test/avatar.png")
@@ -156,6 +156,25 @@ class PvPGlobalLeaderboardTests(unittest.TestCase):
         body = self.page(app.test_client()).get_data(as_text=True)
         self.assertIn("player-fallback", body)
         self.assertIn('href="/pvp/"', body)
+
+    def test_mobile_compact_rows_are_collapsed_and_expandable_without_affecting_desktop_table(self):
+        for index in range(22):
+            self.add_player(index, 1000 - index, name=("A very long player nickname that should truncate" if index == 0 else None))
+        body = self.page(app.test_client()).get_data(as_text=True)
+        mobile_rows = body.split('<div class="mobile-leaderboard"', 1)[1].split('</div>\n        {% elif search %}', 1)[0]
+        self.assertEqual(mobile_rows.count('<details class="mobile-player'), 20)
+        self.assertNotIn(" open", mobile_rows)
+        self.assertIn('class="mobile-player rank-1"', mobile_rows)
+        self.assertIn('class="mobile-player rank-2"', mobile_rows)
+        self.assertIn('class="mobile-player rank-3"', mobile_rows)
+        self.assertIn("<summary class=\"mobile-summary\">", mobile_rows)
+        self.assertIn("mobile-chevron", mobile_rows)
+        self.assertIn("Найкращий результат за матч", mobile_rows)
+        self.assertIn("mobile-nickname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", body)
+        self.assertIn("@media (max-width: 620px)", body)
+        self.assertIn(".leaderboard-scroll { display: none; }", body)
+        self.assertIn(".mobile-leaderboard { display: grid;", body)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", body)
 
 
 if __name__ == "__main__":
