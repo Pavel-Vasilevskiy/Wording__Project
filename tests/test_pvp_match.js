@@ -44,10 +44,12 @@ function setup(fetch) {
     };
     const timers = new Map();
     const listeners = {};
+    const location = { href: "" };
     let timerId = 0;
     let confirmResult = true;
     const confirmations = [];
     const window = {
+        location,
         confirm(message) { confirmations.push(message); return confirmResult; },
         setTimeout(callback, delay) { const id = ++timerId; timers.set(id, { callback, delay, interval: false }); return id; },
         clearTimeout(id) { timers.delete(id); },
@@ -60,7 +62,7 @@ function setup(fetch) {
         createElement(tag) { return new Element(tag); },
     };
     vm.runInNewContext(script, { document, window, fetch, AbortController, URLSearchParams, Date, Math, Set });
-    return { elements, timers, listeners, confirmations, setConfirmResult(value) { confirmResult = value; } };
+    return { elements, timers, listeners, confirmations, location, setConfirmResult(value) { confirmResult = value; } };
 }
 
 const response = (payload, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => payload });
@@ -280,6 +282,16 @@ test("match page CSS keeps the countdown contained and switches to a compact mob
     assert.match(template, /\.countdown-number[^}]*clamp\(/);
     assert.match(template, /overflow-x: clip/);
     assert.doesNotMatch(template, /Введіть слово та натисніть Enter|Раунд активний|Матч створено\. Спільний відлік розпочався\./);
+});
+
+test("expired completed match polling stops and redirects to its permanent history result", async () => {
+    const { location, timers } = setup(async () => response({
+        error: "session_closed",
+        history_url: "/pvp/history/42",
+    }, 410));
+    await waitTurn();
+    assert.equal(location.href, "/pvp/history/42");
+    assert.equal(timers.size, 0);
 });
 
 test("physical input fills five tiles, waits for Enter, and restores the accepted attempt", async () => {

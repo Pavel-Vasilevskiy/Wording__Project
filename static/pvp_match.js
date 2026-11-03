@@ -433,6 +433,11 @@
             });
             const payload = await response.json();
             if (!response.ok) {
+                if (response.status === 410 && payload.error === "session_closed") {
+                    stop();
+                    window.location.href = payload.history_url || "/pvp/";
+                    return;
+                }
                 if (response.status === 400) {
                     submissionUnconfirmed = false;
                     pendingRequestId = null;
@@ -523,6 +528,11 @@
             if (response.status === 410 && state.error === "match_left") {
                 stop();
                 window.location.href = "/pvp/";
+                return;
+            }
+            if (response.status === 410 && state.error === "session_closed") {
+                stop();
+                window.location.href = state.history_url || "/pvp/";
                 return;
             }
             if (!response.ok) throw new Error("Match state unavailable");

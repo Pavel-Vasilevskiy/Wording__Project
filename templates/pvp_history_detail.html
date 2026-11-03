@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101827">
+    <title>PvP — результат матчу</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
+        .history-shell { width: min(100% - 32px, 1040px); margin: 0 auto; padding: 24px 0 48px; }
+        .history-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .history-nav a { color: #f8fafc; border: 1px solid #52627a; border-radius: 10px; padding: 9px 13px; text-decoration: none; background: rgba(25,39,60,.88); }
+        .history-nav a:focus-visible { outline: 3px solid #f6d365; outline-offset: 3px; }
+        .history-panel { margin-top: 22px; padding: clamp(16px, 4vw, 28px); border: 1px solid #34445b; border-radius: 18px; background: rgba(25,39,60,.92); }
+        h1 { margin: 0 0 14px; font-size: clamp(1.5rem, 4vw, 2rem); }
+        h2 { margin: 0 0 12px; font-size: 1.1rem; }
+        .history-muted { color: #bdc9dc; }
+        .history-facts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+        .history-fact { padding: 8px 11px; border: 1px solid #445875; border-radius: 9px; background: rgba(16,24,39,.5); }
+        .history-results-scroll { overflow-x: auto; }
+        .history-results { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .86rem; }
+        .history-results th, .history-results td { padding: 10px 8px; border-bottom: 1px solid #445875; text-align: right; white-space: nowrap; }
+        .history-results th:first-child, .history-results td:first-child, .history-results th:nth-child(2), .history-results td:nth-child(2) { text-align: left; }
+        .history-results th { color: #bdc9dc; }
+        .history-player { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+        .history-avatar, .history-avatar-fallback { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; }
+        .history-avatar-fallback { display: inline-grid; place-items: center; color: #102016; background: #9bd18f; }
+        .history-total { color: #a9df9c; font-size: 1.12rem; font-weight: 800; }
+        .history-left td:first-child::after { content: " · Left"; color: #e8b9bc; font-size: .78rem; }
+        .personal-progress { margin-top: 24px; }
+        .word-progress { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-top: 1px solid #445875; }
+        .word-progress-label { min-width: 85px; color: #bdc9dc; font-size: .85rem; }
+        .attempt-rows { display: grid; gap: 4px; }
+        .attempt-colors { display: flex; gap: 4px; }
+        .attempt-cell { width: 18px; height: 18px; border-radius: 3px; background: #536071; }
+        .attempt-cell.green { background: #538d55; }
+        .attempt-cell.yellow { background: #a98f2e; }
+        .attempt-cell.gray { background: #536071; }
+        @media (max-width: 600px) { .history-shell { width: min(100% - 22px, 1040px); } .history-fact { flex: 1 1 42%; } .history-results { min-width: 740px; } }
+    </style>
+</head>
+<body class="pvp-page">
+<main class="history-shell">
+    <nav class="history-nav" aria-label="Навігація результатів">
+        <a href="{{ url_for('pvp.match_history') }}">← Назад до історії</a>
+        <a href="{{ url_for('pvp.lobby_list') }}">До PvP-лобі</a>
+    </nav>
+    <section class="history-panel">
+        <h1>Результати матчу</h1>
+        <div class="history-facts">
+            <span class="history-fact">Завершено: {% if match.completed_at %}{{ match.completed_at.strftime('%d.%m.%Y %H:%M') }}{% else %}час невідомий{% endif %}</span>
+            <span class="history-fact">Учасників: {{ player_count }}</span>
+            <span class="history-fact">Слів: {{ match.words_count }}</span>
+            <span class="history-fact">Режим: {{ 'Timer' if match.game_mode == 'timer' else 'No time limit' }}</span>
+            <span class="history-fact">Статус: {{ match.status }}</span>
+        </div>
+        <h2>Таблиця результатів</h2>
+        {% if results %}
+        <div class="history-results-scroll">
+            <table class="history-results">
+                <thead><tr><th>Місце</th><th>Гравець</th><th>Зелені</th><th>Жовті</th><th>Швидкість</th><th>Вгадування</th><th>Невикористані спроби</th><th>Разом</th></tr></thead>
+                <tbody>
+                {% for result in results %}
+                <tr class="{{ 'history-left' if result.status == 'left' else '' }}">
+                    <td>{% if result.place %}#{{ result.place }}{% else %}—{% endif %}{% if result.is_winner %} 🏆{% endif %}</td>
+                    <td><span class="history-player">
+                        {% if result.avatar %}<img class="history-avatar" src="{{ result.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="history-avatar-fallback" aria-hidden="true">{{ result.name[:1]|upper or '?' }}</span>{% endif %}
+                        {{ result.name or 'Гравець' }}
+                    </span></td>
+                    <td>{{ result.green_points }}</td><td>{{ result.yellow_points }}</td><td>{{ result.time_bonus }}</td>
+                    <td>{{ result.word_solved_bonus }}</td><td>{{ result.unused_attempt_bonus }}</td><td class="history-total">{{ result.total_score }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}<p class="history-muted">Для цього матчу немає збережених деталей результату.</p>{% endif %}
+
+        {% if personal_progress %}
+        <section class="personal-progress" aria-labelledby="personal-progress-title">
+            <h2 id="personal-progress-title">Мій прогрес за словами</h2>
+            {% for word in personal_progress %}
+            <div class="word-progress">
+                <span class="word-progress-label">Слово {{ word.round_number }} · {{ word.status }}</span>
+                <div class="attempt-rows" aria-label="Кольорові результати спроб">
+                    {% for attempt in word.progress %}
+                    <div class="attempt-colors">{% for color in attempt %}<span class="attempt-cell {{ color }}" aria-label="{{ color }}"></span>{% endfor %}</div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+    </section>
+</main>
+</body>
+</html>

@@ -215,6 +215,21 @@ test("temporary network errors are reported and retried without overlapping requ
     assert.equal(timers.size, 2);
 });
 
+test("a lobby linked to an expired match redirects back to the PvP list", async () => {
+    const fetch = (url) => url.endsWith("/heartbeat")
+        ? Promise.resolve(jsonResponse(200, { online: true }))
+        : Promise.resolve(jsonResponse(410, { error: "match_session_closed" }));
+    const { elements, timers, runTimer, location } = loadPollingScript(fetch);
+    await new Promise(setImmediate);
+    await new Promise(setImmediate);
+    assert.equal(elements["pvp-unavailable-message"].hidden, false);
+    assert.equal(elements["pvp-lobbies-link"].href, "/pvp/");
+    const redirectTimer = [...timers.values()].find((timer) => timer.delay === 1000);
+    assert.ok(redirectTimer);
+    runTimer(1000);
+    assert.equal(location.href, "/pvp/");
+});
+
 test("settings save automatically and serialize newer values after an in-flight save", async () => {
     const requests = [];
     const pending = [];

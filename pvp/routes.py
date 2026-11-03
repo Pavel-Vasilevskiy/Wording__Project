@@ -19,7 +19,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -69,6 +69,8 @@ _PUBLIC_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 logger = logging.getLogger(__name__)
 LEADERBOARD_PAGE_SIZE = 20
 LEADERBOARD_QUERY_MAX_LENGTH = 50
+COMPLETED_MATCH_SESSION_SECONDS = 5 * 60
+MATCH_HISTORY_PAGE_SIZE = 20
 
 
 def _utcnow():
@@ -176,6 +178,48 @@ def _lobby_or_404(public_id):
 
 def _my_membership(user_id):
     return PvPLobbyMember.query.filter_by(user_id=user_id).first()
+
+
+def _match_session_is_open(match, now=None):
+    """Completed matches remain in the active game flow for five minutes only."""
+    if match.status != "completed":
+        return True
+    if match.completed_at is None:
+        # Legacy rows without a trustworthy completion timestamp are closed.
+        return False
+    now = now or _utcnow()
+    return now < match.completed_at + timedelta(seconds=COMPLETED_MATCH_SESSION_SECONDS)
+
+
+def _close_expired_completed_match_sessions(now=None):
+    """Release old lobby memberships without deleting match/result history.
+
+    Must be called inside the request's existing BEGIN IMMEDIATE transaction.
+    """
+    now = now or _utcnow()
+    cutoff = now - timedelta(seconds=COMPLETED_MATCH_SESSION_SECONDS)
+    completed_matches = PvPMatch.query.filter(
+        PvPMatch.status == "completed",
+        or_(PvPMatch.completed_at.is_(None), PvPMatch.completed_at <= cutoff),
+    ).all()
+    removed = 0
+    for match in completed_matches:
+        if _match_session_is_open(match, now):
+            continue
+        lobby = match.lobby
+        if lobby is None:
+            continue
+        for membership in list(lobby.memberships):
+            db.session.delete(membership)
+            removed += 1
+    return removed
+
+
+def _current_live_membership(user_id, now=None):
+    membership = _my_membership(user_id)
+    if membership and membership.lobby.match and not _match_session_is_open(membership.lobby.match, now):
+        return None
+    return membership
 
 
 def _kick_token(public_id, user_id):
@@ -309,6 +353,93 @@ def _match_results(match):
 def _persist_new_match_completion(match, was_completed, now):
     if not was_completed and match.status == "completed":
         persist_completed_match_results(match, match.completed_at or now)
+
+
+def _history_player_progress(player):
+    try:
+        history = json.loads(player.round_history or "[]")
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(history, list):
+        return []
+    safe_history = []
+    for item in history:
+        if not isinstance(item, dict) or not isinstance(item.get("round_number"), int):
+            continue
+        rows = safe_progress_rows(json.dumps(item.get("progress", [])))
+        safe_history.append({
+            "round_number": item["round_number"],
+            "status": item.get("status") if item.get("status") in {
+                "solved", "failed", "expired", "left", "completed"
+            } else "completed",
+            "progress": rows,
+        })
+    return sorted(safe_history, key=lambda item: item["round_number"])
+
+
+@pvp_bp.route("/history", methods=["GET"])
+@login_required
+def match_history():
+    try:
+        try:
+            page = max(1, int(request.args.get("page", "1")))
+        except (TypeError, ValueError):
+            page = 1
+        base_query = db.session.query(PvPMatchResult, PvPMatch).join(
+            PvPMatch, PvPMatch.id == PvPMatchResult.match_id
+        ).filter(
+            PvPMatchResult.user_id == current_user.id,
+            PvPMatch.status == "completed",
+        )
+        total_count = base_query.count()
+        total_pages = max(1, (total_count + MATCH_HISTORY_PAGE_SIZE - 1) // MATCH_HISTORY_PAGE_SIZE)
+        page = min(page, total_pages)
+        rows = base_query.order_by(
+            func.coalesce(PvPMatch.completed_at, PvPMatchResult.finalized_at).desc(),
+            PvPMatch.id.desc(),
+        ).offset((page - 1) * MATCH_HISTORY_PAGE_SIZE).limit(MATCH_HISTORY_PAGE_SIZE).all()
+        return render_template(
+            "pvp_history.html",
+            rows=rows,
+            page=page,
+            total_pages=total_pages,
+            total_count=total_count,
+            page_size=MATCH_HISTORY_PAGE_SIZE,
+        )
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not load PvP match history")
+        abort(503)
+
+
+@pvp_bp.route("/history/<int:match_id>", methods=["GET"])
+@login_required
+def match_history_detail(match_id):
+    try:
+        match = PvPMatch.query.filter_by(id=match_id, status="completed").first()
+        if match is None:
+            abort(404)
+        own_player = PvPMatchPlayer.query.filter_by(
+            match_id=match.id, user_id=current_user.id
+        ).first()
+        if own_player is None:
+            abort(404)
+        own_result = PvPMatchResult.query.filter_by(
+            match_id=match.id, user_id=current_user.id
+        ).first()
+        results = _match_results(match)
+        return render_template(
+            "pvp_history_detail.html",
+            match=match,
+            results=results,
+            own_result=own_result,
+            personal_progress=_history_player_progress(own_player),
+            player_count=len(match.players),
+        )
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("Could not load PvP match history details")
+        abort(503)
 
 
 def _create_match(lobby, now):
@@ -462,7 +593,7 @@ def lobby_list():
             flash("Лідер видалив вас із цього лобі.", "info")
         elif request.args.get("notice") == "unavailable":
             flash("Це лобі більше не існує або ви більше не маєте до нього доступу.", "info")
-        my_membership = _my_membership(current_user.id)
+        my_membership = _current_live_membership(current_user.id)
         lobbies = PvPLobby.query.filter_by(status="open").order_by(
             PvPLobby.created_at.asc(), PvPLobby.id.asc()
         ).all()
@@ -517,6 +648,7 @@ def lobby_list_state():
     _check_csrf()
     try:
         _begin_write()
+        _close_expired_completed_match_sessions()
         cleanup_stale_lobbies()
         payload = _lobby_list_payload(current_user.id)
         db.session.commit()
@@ -536,6 +668,7 @@ def create_lobby():
     user_id = current_user.id
     try:
         _begin_write()
+        _close_expired_completed_match_sessions()
         cleanup_stale_lobbies()
         existing = _my_membership(user_id)
         if existing:
@@ -575,6 +708,9 @@ def lobby_detail(public_id):
         if lobby is None:
             flash("Це лобі більше не існує. Можливо, його було закрито", "info")
             return redirect(url_for("pvp.lobby_list"))
+        if lobby.match is not None and not _match_session_is_open(lobby.match):
+            flash("Сесію завершеного матчу закрито. Результати доступні в історії матчів.", "info")
+            return redirect(url_for("pvp.lobby_list"))
         is_member = PvPLobbyMember.query.filter_by(lobby_id=lobby.id, user_id=current_user.id).first()
         if not is_member:
             was_kicked = PvPLobbyKickNotice.query.filter_by(
@@ -585,6 +721,7 @@ def lobby_detail(public_id):
             else:
                 flash("Це лобі більше недоступне.", "info")
             return redirect(url_for("pvp.lobby_list"))
+
         return render_template(
             "pvp_lobby_detail.html",
             lobby=lobby,
@@ -620,6 +757,9 @@ def lobby_state(public_id):
             if was_kicked:
                 return {"error": "kicked"}, 410
             return {"error": "lobby_unavailable"}, 404
+
+        if lobby.match is not None and not _match_session_is_open(lobby.match):
+            return {"error": "match_session_closed"}, 410
 
         snapshot = _lobby_snapshot(lobby, current_user.id)
         current_member = snapshot["current_member"]["membership"]
@@ -676,6 +816,9 @@ def lobby_heartbeat(public_id):
         if lobby is None:
             db.session.rollback()
             return {"error": "lobby_unavailable"}, 404
+        if lobby.match is not None and not _match_session_is_open(lobby.match):
+            db.session.rollback()
+            return {"error": "match_session_closed"}, 410
         member = mark_member_online(lobby, user_id)
         if member is None:
             db.session.rollback()
@@ -891,7 +1034,10 @@ def match_detail(public_id):
         )
         if not player:
             abort(404)
-        if player.status == "left":
+        if not _match_session_is_open(match):
+            flash("Час активної сесії завершеного матчу минув. Перегляньте результат в історії.", "info")
+            return redirect(url_for("pvp.match_history_detail", match_id=match.id))
+        if player.status == "left" and match.status != "completed":
             flash("Ви вже покинули цей матч. Результати збережені.", "info")
             return redirect(url_for("pvp.lobby_list"))
         return render_template(
@@ -932,13 +1078,26 @@ def match_state(public_id):
             if request.method == "POST":
                 db.session.rollback()
             return {"error": "match_unavailable"}, 404
+        was_completed = match.status == "completed"
+        now = _utcnow()
+        if was_completed and not _match_session_is_open(match, now):
+            if request.method == "POST":
+                _close_expired_completed_match_sessions(now)
+                db.session.commit()
+            return {
+                "error": "session_closed",
+                "history_url": url_for("pvp.match_history_detail", match_id=match.id),
+            }, 410
         if player.status == "left":
+            if was_completed and _match_session_is_open(match, now):
+                if request.method == "POST":
+                    db.session.commit()
+                result = jsonify(_match_state_payload(match, player, now))
+                result.headers["Cache-Control"] = "no-store"
+                return result
             if request.method == "POST":
                 db.session.rollback()
             return {"error": "match_left"}, 410
-
-        was_completed = match.status == "completed"
-        now = _utcnow()
         if request.method == "POST":
             player.last_seen_at = now
             advance_match_clock(match, now)
@@ -987,8 +1146,16 @@ def submit_match_guess(public_id):
             db.session.rollback()
             return {"error": "player_left"}, 409
 
-        raw_guess = request.form.get("guess", "")
         now = _utcnow()
+        if match.status == "completed" and not _match_session_is_open(match, now):
+            _close_expired_completed_match_sessions(now)
+            db.session.commit()
+            return {
+                "error": "session_closed",
+                "history_url": url_for("pvp.match_history_detail", match_id=match.id),
+            }, 410
+
+        raw_guess = request.form.get("guess", "")
         player.last_seen_at = now
         advance_match_clock(match, now)
         expire_unfinished_players(match)
@@ -1219,6 +1386,7 @@ def join_lobby(public_id):
     user_id = current_user.id
     try:
         _begin_write()
+        _close_expired_completed_match_sessions()
         cleanup_stale_lobbies()
         lobby = _lobby_or_404(public_id)
         membership = _my_membership(user_id)

@@ -175,6 +175,13 @@
                 return;
             }
             if (response.status === 410) {
+                const state = await response.json().catch(() => ({}));
+                if (state.error === "match_session_closed") {
+                    showUnavailable("Матч завершено. Його результати можна переглянути в історії.");
+                    if (lobbyListLink) lobbyListLink.href = "/pvp/";
+                    window.setTimeout(() => { window.location.href = "/pvp/"; }, 1000);
+                    return;
+                }
                 showUnavailable("Лідер видалив вас із цього лобі. Повертаємо до списку лобі.");
                 if (lobbyListLink) lobbyListLink.href = "/pvp/?kicked=1";
                 window.setTimeout(() => { window.location.href = "/pvp/?kicked=1"; }, 1400);

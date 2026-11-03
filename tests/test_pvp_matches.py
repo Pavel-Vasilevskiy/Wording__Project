@@ -348,7 +348,8 @@ class PvPMatchTests(unittest.TestCase):
         match.completed_at = datetime(2026, 1, 1)
         db.session.commit()
 
-        state = clients[0].get(f"/pvp/match/{match.public_id}/state").get_json()
+        with patch("pvp.routes._utcnow", return_value=match.completed_at + timedelta(seconds=299)):
+            state = clients[0].get(f"/pvp/match/{match.public_id}/state").get_json()
         results = state["results"]
         self.assertEqual([item["total_score"] for item in results], [52, 30])
         self.assertEqual(results[0]["green_points"], 20)
@@ -665,6 +666,8 @@ class PvPMatchTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
         db.session.refresh(match)
         self.assertEqual((match.status, match.current_round), ("completed", 3))
+        completed_timestamp = match.completed_at
+        self.assertIsNotNone(completed_timestamp)
         self.assertEqual(PvPMatchRound.query.filter_by(match_id=match.id, round_number=3).one().status, "completed")
         saved_results = PvPMatchResult.query.filter_by(match_id=match.id).all()
         self.assertEqual(len(saved_results), 2)
@@ -713,6 +716,8 @@ class PvPMatchTests(unittest.TestCase):
             stats = db.session.get(PvPPlayerStats, item.user_id)
             self.assertEqual(stats.matches_played, 1)
             self.assertEqual(stats.wins, int(item.is_winner))
+        db.session.refresh(match)
+        self.assertEqual(match.completed_at, completed_timestamp)
         barrier = Barrier(2)
 
         def simultaneous_poll(client):
