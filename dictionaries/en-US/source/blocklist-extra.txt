@@ -1,0 +1,18 @@
+# Hand-reviewed exact five-letter offensive forms and common spelling variants.
+# This list is intentionally exact-word only; no substring rules are applied.
+chink
+cunts
+dicks
+fagot
+faggy
+fucks
+gooks
+honky
+kikes
+shite
+shits
+spazz
+spics
+tards
+twats
+wanks

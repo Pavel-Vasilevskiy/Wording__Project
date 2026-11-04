@@ -1208,7 +1208,9 @@ def submit_match_guess(public_id):
                 return {"error": "round_expired"}, 409
             return {"error": "stale_round", "current_round": current_round.round_number}, 409
 
-        normalized_guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
+        normalized_guess, validation_error = validate_guess(
+            raw_guess, word_length=5, language="en-US"
+        )
         if validation_error:
             db.session.commit()
             return {"error": "invalid_guess", "message": validation_error}, 400

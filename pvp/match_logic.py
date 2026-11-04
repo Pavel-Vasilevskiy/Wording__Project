@@ -2,7 +2,6 @@
 
 import json
 import math
-import secrets
 from collections import Counter
 from datetime import timedelta
 
@@ -11,11 +10,9 @@ COUNTDOWN_SECONDS = 5
 PUBLIC_COLORS = {"green", "yellow", "gray"}
 
 
-def choose_word_sequence(dictionary, count):
-    """Select unique shared answers from the already validated local dictionary."""
-    if count < 1 or count > len(dictionary):
-        raise ValueError("Dictionary cannot supply the requested number of unique words")
-    return secrets.SystemRandom().sample(dictionary.words, count)
+def choose_word_sequence(dictionary, count, word_length=5, random_source=None):
+    """Select unique, shared answers from the local answer-only vocabulary."""
+    return dictionary.choose_answers(count, word_length, random_source=random_source)
 
 
 def evaluate_guess(guess, answer):

@@ -60,8 +60,9 @@ class DictionaryGameTests(unittest.TestCase):
             game_session["won"] = False
 
     def test_large_dictionary_is_normalized_and_cached_once(self):
-        self.assertEqual(len(EN_US_DICTIONARY), 8754)
+        self.assertEqual(len(EN_US_DICTIONARY), 8714)
         self.assertIs(load_dictionary("en-US"), EN_US_DICTIONARY)
+        self.assertIs(load_dictionary("en"), EN_US_DICTIONARY)
         self.assertTrue(EN_US_DICTIONARY.contains("CRANE"))
         self.assertEqual(EN_US_DICTIONARY.words, tuple(sorted(EN_US_DICTIONARY.words)))
         self.assertTrue(all(word.isascii() and word.isalpha() and len(word) == 5 for word in EN_US_DICTIONARY.words))
@@ -155,7 +156,7 @@ class DictionaryGameTests(unittest.TestCase):
 
     def test_answer_is_selected_from_dictionary_and_stays_constant_in_game(self):
         for _ in range(100):
-            self.assertTrue(EN_US_DICTIONARY.contains(pick_word()))
+            self.assertTrue(EN_US_DICTIONARY.is_allowed_answer(pick_word()))
 
         user = self.create_user()
         client = authenticated_app.test_client()
@@ -171,7 +172,7 @@ class DictionaryGameTests(unittest.TestCase):
 
         client.post("/new_game")
         with client.session_transaction() as game_session:
-            self.assertTrue(EN_US_DICTIONARY.contains(game_session["target_word"]))
+            self.assertTrue(EN_US_DICTIONARY.is_allowed_answer(game_session["target_word"]))
 
     def test_dictionary_loader_filters_invalid_rows_deduplicates_and_fails_clearly(self):
         source = Path(__file__).with_name(".dictionary-source-test.txt")

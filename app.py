@@ -1,13 +1,17 @@
 from flask import Flask, request, render_template, url_for, jsonify, session
 import os
-from word_dictionary import EN_US_DICTIONARY, validate_guess
+from word_dictionary import get_random_answer, validate_guess
 
 app = Flask(__name__)
 app.secret_key = 'wordle_secret_key_2024'  # Needed for sessions
 
-def pick_word():
-    """Pick a uniformly random answer from the loaded en-US dictionary."""
-    return EN_US_DICTIONARY.choose_answer().upper()
+def pick_word(previous_word=None):
+    """Pick a local en-US answer, avoiding the current session's last word."""
+    return get_random_answer(
+        language="en-US",
+        word_length=5,
+        exclude=(previous_word or "",),
+    ).upper()
 
 def check_guess(guess, target_word):
     """Check the guess against target word and return color coding"""
@@ -30,7 +34,7 @@ def check_guess(guess, target_word):
 def index():
     """Main game page"""
     # Initialize new game
-    session['target_word'] = pick_word()
+    session['target_word'] = pick_word(session.get('target_word'))
     session['tries'] = 0
     session['guesses'] = []
     session['game_over'] = False
@@ -42,7 +46,7 @@ def make_guess():
     """Process a guess"""
     data = request.get_json()
     raw_guess = data.get('guess', '') if isinstance(data, dict) else ''
-    guess, validation_error = validate_guess(raw_guess, EN_US_DICTIONARY)
+    guess, validation_error = validate_guess(raw_guess, word_length=5, language="en-US")
     if validation_error:
         return jsonify({'error': validation_error}), 400
     
@@ -78,7 +82,7 @@ def make_guess():
 @app.route('/new_game', methods=['POST'])
 def new_game():
     """Start a new game"""
-    session['target_word'] = pick_word()
+    session['target_word'] = pick_word(session.get('target_word'))
     session['tries'] = 0
     session['guesses'] = []
     session['game_over'] = False

@@ -113,18 +113,18 @@ The application automatically creates the SQLite database on first run. No manua
 ## 📚 Guess Dictionary
 
 The server validates guesses against the packaged American English dictionary at
-`dictionaries/en-US/words.txt`. The same complete list supplies hidden answers.
-It contains 8,754 normalized five-letter words and is loaded once when the
-application starts. To rebuild it from the pinned upstream source, run:
+`dictionaries/en-US/allowed_guesses_5.txt`; hidden answers come from the separate
+`answer_words_5.txt` file. Both sets are loaded once when the application starts.
+To rebuild the normalized sets from their pinned upstream sources, run:
 
 ```bash
 python build_dictionary.py
 ```
 
-The source release, license notice, retrieval date, and filtering details are in
-[`dictionaries/en-US/README.md`](dictionaries/en-US/README.md). The dictionary is
-included in the application image and does not use the SQLite database or Fly
-Volume.
+The source releases, licenses, retrieval dates, filtering rules, and current
+word counts are in [`dictionaries/en-US/README.md`](dictionaries/en-US/README.md).
+The dictionaries are included in the application image and do not use the SQLite
+database or Fly Volume.
 
 ## 👤 User Features
 
