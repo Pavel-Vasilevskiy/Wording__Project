@@ -116,12 +116,6 @@ body {
     transform: translateY(-1px);
 }
 
-.sidebar-actions #new-game {
-    margin: 0;
-    padding: 12px;
-    font-size: 14px;
-}
-
 /* Main content area */
 .main-content {
     margin-left: 250px;
@@ -150,46 +144,6 @@ body {
     background: #1a1a1b;
     border-radius: 8px;
     border: 1px solid #3a3a3c;
-}
-
-/* Return to the public game portal without covering the game board. */
-.portal-game-home {
-    position: fixed;
-    top: 12px;
-    right: 16px;
-    z-index: 5;
-    display: inline-flex;
-    align-items: center;
-    padding: 9px 13px;
-    border: 1px solid #5a9a54;
-    border-radius: 8px;
-    background: #6aaa64;
-    color: #fff;
-    font-size: .9rem;
-    font-weight: 700;
-    line-height: 1.2;
-    text-decoration: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
-    transition: background-color .2s, transform .2s;
-}
-
-.portal-game-home:hover {
-    background: #5a9a54;
-    transform: translateY(-1px);
-}
-
-.portal-game-home:focus-visible {
-    outline: 3px solid #c9b458;
-    outline-offset: 3px;
-}
-
-@media (max-width: 480px) {
-    .portal-game-home {
-        top: 12px;
-        right: 12px;
-        padding: 8px 10px;
-        font-size: .8rem;
-    }
 }
 
 .user-info {
@@ -358,14 +312,6 @@ button:active {
     background-color: #4a8a44;
 }
 
-#new-game {
-    background-color: #787c7e;
-}
-
-#new-game:hover {
-    background-color: #686c6e;
-}
-
 /* Game status */
 #game-status {
     margin: 20px 0;
@@ -436,17 +382,17 @@ button:active {
 
 /* Key status colors */
 .key.correct {
-    background-color: #6aaa64 !important;
+    background-color: #6aaa64;
     color: white;
 }
 
 .key.present {
-    background-color: #c9b458 !important;
+    background-color: #c9b458;
     color: white;
 }
 
 .key.absent {
-    background-color: #3a3a3c !important;
+    background-color: #3a3a3c;
     color: white;
 }
 
@@ -583,34 +529,9 @@ button:active {
         max-width: 100%;
     }
     
-    /* Add hamburger menu button for mobile */
-    .mobile-menu-btn {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 1001;
-        background: #6aaa64;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 10px;
-        font-size: 18px;
-        cursor: pointer;
-        display: block;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-    
-    .mobile-menu-btn:hover {
-        background: #5a9a54;
-    }
 }
 
-/* Hide mobile menu button on desktop */
 @media (min-width: 481px) {
-    .mobile-menu-btn {
-        display: none;
-    }
-    
     /* Game status and info */
     #game-status {
         font-size: 1em;

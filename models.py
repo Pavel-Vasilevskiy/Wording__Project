@@ -11,6 +11,7 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(100), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     picture = db.Column(db.String(200))
+    custom_avatar = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Game statistics

@@ -7,6 +7,7 @@ const test = require('node:test');
 const projectRoot = path.resolve(__dirname, '..');
 const script = fs.readFileSync(path.join(projectRoot, 'static/script.js'), 'utf8');
 const styles = fs.readFileSync(path.join(projectRoot, 'static/style.css'), 'utf8');
+const classicStyles = fs.readFileSync(path.join(projectRoot, 'static/css/classic-wordle.css'), 'utf8');
 let elements;
 
 class FakeClassList {
@@ -35,11 +36,15 @@ class FakeElement {
         this.dataset = {};
         this.parentNode = null;
         this.disabled = false;
+        this.open = false;
     }
     set id(value) { this._id = value; if (value) elements.set(value, this); }
     get id() { return this._id; }
     set innerHTML(value) { this.children = []; }
     addEventListener(type, callback) { (this.listeners[type] ||= []).push(callback); }
+    showModal() { this.open = true; }
+    close() { this.open = false; for (const listener of this.listeners.close || []) listener({ target: this }); }
+    focus() { this.focused = true; }
     appendChild(child) { child.parentNode = this; this.children.push(child); return child; }
     getAttribute(name) { return name === 'data-key' ? this.dataset.key : null; }
     closest(selector) {
@@ -72,8 +77,8 @@ function makeGame(initialState = { guesses: [], tries: 0, game_over: false, won:
     const documentListeners = {};
     const ids = [
         'new-game', 'game-status', 'tries-count', 'game-board',
-        'mobile-menu-btn', 'sidebar', 'games-count', 'win-rate', 'current-streak',
-        'max-streak', 'key-enter', 'key-backspace',
+        'new-game-confirmation', 'confirm-new-game', 'cancel-new-game', 'sidebar',
+        'games-count', 'win-rate', 'current-streak', 'max-streak', 'key-enter', 'key-backspace',
     ];
     ids.forEach(id => new FakeElement(id));
     const keyButtons = 'QWERTYUIOPASDFGHJKLZXCVBNM'.split('').map(letter => {
@@ -150,6 +155,7 @@ test('physical letters fill the active row, uppercase, cap at five, and wait for
     game.keydown('Enter');
     await game.flush();
     assert.equal(game.sent.filter(item => item.url === '/guess').length, 1);
+    assert.equal(game.elements.get('game-status').textContent, '');
     assert.equal(JSON.parse(game.sent.find(item => item.url === '/guess').options.body).guess, 'CRANE');
     assert.equal(game.tileText(0), 'CRANE');
     assert.equal(game.elements.get('tries-count').textContent, 1);
@@ -294,8 +300,86 @@ test('New Game clears the active row and keyboard colors', async () => {
     game.keydown('A');
     assert.equal(game.tileText(1), 'A');
     game.elements.get('new-game').dispatch('click');
+    assert.equal(game.elements.get('new-game-confirmation').open, true);
+    game.elements.get('confirm-new-game').dispatch('click');
     await game.flush();
     assert.equal(game.tileText(0), '');
     assert.equal(game.tileText(1), '');
     assert.equal(game.keyButtons.find(key => key.dataset.key === 'C').classList.contains('unused'), true);
+});
+
+test('Cancel and Escape preserve the current game while confirming New Game sends one request', async () => {
+    const result = 'CRANE'.split('').map((letter, index) => ({ letter, status: index === 0 ? 'green' : 'gray' }));
+    const game = makeGame({ guesses: [result], tries: 1, game_over: false, won: false, target_word: null });
+    await game.flush();
+    game.keydown('A');
+    const newGame = game.elements.get('new-game');
+    const dialog = game.elements.get('new-game-confirmation');
+
+    newGame.dispatch('click');
+    assert.equal(dialog.open, true);
+    assert.equal(game.tileText(1), 'A');
+    assert.equal(game.sent.filter(item => item.url === '/new_game').length, 0);
+    game.elements.get('cancel-new-game').dispatch('click');
+    assert.equal(dialog.open, false);
+    assert.equal(game.tileText(0), 'CRANE');
+    assert.equal(game.tileText(1), 'A');
+    assert.equal(game.elements.get('tries-count').textContent, 1);
+
+    newGame.dispatch('click');
+    dialog.dispatch('cancel');
+    assert.equal(dialog.open, false);
+    assert.equal(game.tileText(1), 'A');
+
+    newGame.dispatch('click');
+    const confirm = game.elements.get('confirm-new-game');
+    confirm.dispatch('click');
+    confirm.dispatch('click');
+    await game.flush();
+    assert.equal(game.sent.filter(item => item.url === '/new_game').length, 1);
+    assert.equal(game.elements.get('tries-count').textContent, '0');
+    assert.equal(game.tileText(0), '');
+    assert.equal(game.tileText(1), '');
+    assert.equal(game.elements.get('new-game-confirmation').open, false);
+});
+
+test('New Game starts without confirmation when the current game has no progress', async () => {
+    const game = makeGame();
+    await game.flush();
+    game.elements.get('new-game').dispatch('click');
+    await game.flush();
+    assert.equal(game.elements.get('new-game-confirmation').open, false);
+    assert.equal(game.sent.filter(item => item.url === '/new_game').length, 1);
+});
+
+test('keyboard color priority keeps the most informative color across accepted guesses', async () => {
+    const game = makeGame();
+    await game.flush();
+    const response = (word, firstStatus, tries) => ({
+        result: word.split('').map((letter, index) => ({ letter, status: index === 0 ? firstStatus : 'gray' })),
+        tries,
+        game_over: false,
+        won: false,
+        target_word: null,
+    });
+    game.setGuessResponses([
+        response('ALERT', 'gray', 1),
+        response('ALONE', 'yellow', 2),
+        response('AROSE', 'green', 3),
+        response('AMBER', 'gray', 4),
+    ]);
+    for (const [word, status] of [['ALERT', 'absent'], ['ALONE', 'present'], ['AROSE', 'correct'], ['AMBER', 'correct']]) {
+        for (const letter of word) game.keydown(letter);
+        game.keydown('Enter');
+        await game.flush();
+        assert.equal(game.keyButtons.find(key => key.dataset.key === 'A').classList.contains(status), true);
+    }
+});
+
+test('Classic keyboard palette separates unused and absent keys and fits rows inside its card', () => {
+    assert.match(classicStyles, /--classic-key-default:\s*#334155/);
+    assert.match(classicStyles, /\.key\.absent[^\n]*background:\s*#64748b/);
+    assert.match(classicStyles, /\.key\.present[^\n]*background:\s*#ca8a04/);
+    assert.match(classicStyles, /\.key\.correct[^\n]*background:\s*#16a34a/);
+    assert.match(classicStyles, /\.keyboard\s*\{\s*width:\s*100%;/);
 });

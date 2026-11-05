@@ -1,3 +1,4 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,17 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Wordle — {{ portal_name }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/classic-wordle.css') }}">
 </head>
-<body>
-    <a href="{{ url_for('index') }}" class="portal-game-home" aria-label="Повернутися до всіх ігор">← До всіх ігор</a>
-    <!-- Mobile Menu Button -->
+<body class="wordle-with-site-nav">
+    {{ site_navigation(active='classic', compact=true, wordle=true) }}
     {% if user %}
-    <button class="mobile-menu-btn" id="mobile-menu-btn">☰</button>
-    
     <!-- Left Sidebar for User Stats -->
     <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <img src="{{ user.picture }}" alt="{{ user.name }}" class="sidebar-avatar">
+            {% set current_avatar = avatar_url(user=user) %}{% if current_avatar %}<img src="{{ current_avatar }}" alt="{{ user.name }}" class="sidebar-avatar" onerror="this.hidden=true;this.nextElementSibling.hidden=false">{% endif %}<span class="sidebar-avatar-fallback" aria-hidden="true" {% if current_avatar %}hidden{% endif %}>{{ (user.name or '?')[:1]|upper }}</span>
             <h3 class="sidebar-username">{{ user.name }}</h3>
         </div>
         
@@ -39,8 +39,6 @@
         </div>
         
         <div class="sidebar-actions">
-            <button id="new-game">New Game</button>
-            <a href="{{ url_for('profile') }}" class="sidebar-btn">👤 Profile</a>
             <a href="{{ url_for('leaderboard') }}" class="sidebar-btn">🏆 Leaderboard</a>
             <a href="{{ url_for('logout') }}" class="sidebar-btn">🚪 Logout</a>
         </div>
@@ -49,7 +47,10 @@
 
     <div class="main-content">
         <div class="container">
-        
+        <header class="classic-game-heading">
+            <p class="classic-eyebrow">Classic mode</p>
+            <h1>Wordle</h1>
+        </header>
         <!-- Game Board -->
         <div id="game-board">
             <!-- Rows will be dynamically created here -->
@@ -99,8 +100,21 @@
         <!-- Game info -->
         <div class="game-info">
             <div>Tries: <span id="tries-count">0</span>/6</div>
+            <button id="new-game" class="classic-new-game" type="button" disabled>New Game</button>
         </div>
+        </div>
+    </div>
 
+    <dialog class="classic-confirm-dialog" id="new-game-confirmation" aria-labelledby="new-game-confirmation-title" aria-describedby="new-game-confirmation-message">
+        <div class="classic-confirm-content">
+            <h2 id="new-game-confirmation-title">Start a new game?</h2>
+            <p id="new-game-confirmation-message">Your current game progress will be lost. Are you sure you want to start a new game?</p>
+            <div class="classic-confirm-actions">
+                <button id="cancel-new-game" class="ds-button ds-button--secondary" type="button">Cancel</button>
+                <button id="confirm-new-game" class="ds-button" type="button">Start New Game</button>
+            </div>
+        </div>
+    </dialog>
 
     <!-- Footer -->
     <footer class="game-footer">

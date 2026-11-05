@@ -1,0 +1,112 @@
+/* Global Design System v1. Values can be overridden on a page or by a future theme. */
+:root {
+    --bg-primary: #0b0f19;
+    --bg-secondary: #141b2d;
+    --bg-tertiary: #1b2438;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --accent-primary: #6366f1;
+    --accent-secondary: #38bdf8;
+    --success: #22c55e;
+    --warning: #eab308;
+    --danger: #ef4444;
+    --border-color: #293750;
+
+    --card-background: var(--bg-secondary);
+    --card-border: var(--border-color);
+    --card-hover: #202b42;
+    --button-background: var(--accent-primary);
+    --button-hover: #5558e8;
+    --button-text: #fff;
+    --input-background: #101827;
+    --input-border: #425271;
+    --modal-background: #141b2d;
+    --shadow-card: 0 14px 38px rgba(0, 0, 0, .22);
+    --radius-small: 9px;
+    --radius-card: 16px;
+    --radius-large: 22px;
+    --transition-fast: 160ms ease;
+    --content-max-width: 1120px;
+    --space-unit: 8px;
+}
+
+/* Future themes override tokens here using a root data-theme attribute. */
+.ds-card { color: var(--text-primary); background: var(--card-background); border: 1px solid var(--card-border); border-radius: var(--radius-card); padding: calc(var(--space-unit) * 2); }
+.ds-card--interactive { transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast); }
+.ds-card--interactive:hover { background: var(--card-hover); transform: translateY(-2px); }
+.ds-button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border: 1px solid transparent; border-radius: var(--radius-small); color: var(--button-text); background: var(--button-background); font: inherit; font-weight: 700; line-height: 1.2; text-decoration: none; cursor: pointer; transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast); }
+.ds-button:hover { background: var(--button-hover); }
+.ds-button:active { transform: translateY(1px); }
+.ds-button--secondary { border-color: var(--input-border); color: var(--text-primary); background: var(--bg-tertiary); }
+.ds-button--secondary:hover { background: var(--card-hover); }
+.ds-button--ghost { border-color: transparent; color: var(--text-secondary); background: transparent; }
+.ds-button--ghost:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.ds-button--danger { color: #fff; background: var(--danger); }
+.ds-button--small { min-height: 32px; padding: 6px 10px; font-size: .86rem; }
+.ds-button--large { min-height: 48px; padding: 12px 18px; }
+.ds-input { width: 100%; min-height: 42px; padding: 9px 12px; border: 1px solid var(--input-border); border-radius: var(--radius-small); color: var(--text-primary); background: var(--input-background); font: inherit; }
+.ds-input::placeholder { color: var(--text-secondary); }
+.ds-input:focus-visible,.ds-button:focus-visible { outline: 3px solid var(--accent-secondary); outline-offset: 2px; }
+.ds-input:focus-visible { border-color: var(--accent-secondary); }
+.ds-badge { display: inline-flex; align-items: center; padding: 4px 9px; border: 1px solid var(--border-color); border-radius: 999px; color: var(--text-primary); background: var(--bg-tertiary); font-size: .8rem; font-weight: 750; line-height: 1.2; }
+.ds-badge--win,.ds-badge--online { color: #bbf7d0; border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.13); }
+.ds-badge--loss,.ds-badge--left,.ds-badge--offline { color: #fecaca; border-color: rgba(239,68,68,.28); background: rgba(239,68,68,.12); }
+.ds-badge--draw,.ds-badge--rank { color: #fde68a; border-color: rgba(234,179,8,.32); background: rgba(234,179,8,.12); }
+.ds-heading { color: var(--text-primary); font-size: clamp(1.35rem, 3vw, 2rem); line-height: 1.15; }
+.ds-section-heading { color: var(--text-primary); font-size: 1.12rem; line-height: 1.25; }
+.ds-subtitle,.ds-muted { color: var(--text-secondary); }
+
+/* Optional dashboard ring motif; pseudo-element stays below content and ignores pointer events. */
+.dashboard-decoration { position: relative; isolation: isolate; overflow: hidden; }
+.dashboard-decoration::after { position: absolute; z-index: -1; top: var(--decoration-top, -120px); right: var(--decoration-right, -70px); width: var(--decoration-size, 280px); aspect-ratio: 1; border: 1px solid color-mix(in srgb, var(--decoration-color, var(--accent-secondary)) 42%, transparent); border-radius: 50%; content: ""; opacity: var(--decoration-opacity, .38); pointer-events: none; }
+.dashboard-decoration--top-right { --decoration-top: -120px; --decoration-right: -70px; }
+.dashboard-decoration--subtle { --decoration-opacity: .18; --decoration-size: 240px; }
+
+/* Shared header shell gives every page the same width and vertical rhythm, independent of its content column. */
+.portal-header-shell { position: relative; z-index: 30; width: min(calc(100% - 36px), var(--content-max-width)); margin: 16px auto 18px; }
+.portal-site-nav { position: relative; display: flex; width: 100%; min-height: 56px; align-items: center; justify-content: space-between; gap: 18px; margin: 0; padding: 8px 12px; border: 1px solid rgba(71, 85, 110, .72); border-radius: 14px; color: var(--text-primary); background: rgba(20, 27, 45, .94); box-shadow: var(--shadow-card); }
+.portal-site-brand { flex: 0 1 210px; overflow: hidden; color: var(--text-primary); font-weight: 800; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.portal-site-links { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 4px; }
+.portal-mobile-profile-link { display: none; }
+.portal-site-links a,.portal-site-login { display: inline-flex; min-height: 38px; align-items: center; padding: 7px 10px; border: 1px solid transparent; border-radius: 9px; color: var(--text-secondary); font-size: .9rem; font-weight: 650; text-decoration: none; white-space: nowrap; transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast); }
+.portal-site-links a:hover,.portal-site-login:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.portal-site-links a[aria-current="page"],.portal-site-avatar-link[aria-current="page"] { border-color: rgba(99,102,241,.42); color: #e0e7ff; background: rgba(99,102,241,.16); }
+.portal-site-avatar-link { display: grid; flex: 0 0 38px; width: 38px; height: 38px; place-items: center; overflow: hidden; border: 2px solid rgba(56,189,248,.72); border-radius: 50%; color: white; background: linear-gradient(135deg,var(--accent-primary),var(--accent-secondary)); text-decoration: none; }
+.portal-site-avatar-link img,.portal-site-avatar-fallback { grid-area: 1 / 1; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.portal-site-avatar-fallback { display: grid; place-items: center; font-size: .95rem; font-weight: 800; }
+.portal-site-avatar-fallback[hidden],.player-fallback[hidden],.history-avatar-fallback[hidden],.sidebar-avatar-fallback[hidden] { display: none; }
+.portal-site-avatar-fallback[hidden],.avatar-fallback[hidden] { display: none; }
+.portal-site-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.portal-menu-toggle { display: none; width: 40px; height: 40px; align-items: center; justify-content: center; margin: 0; padding: 0; border: 1px solid var(--border-color); border-radius: 10px; color: var(--text-primary); background: var(--bg-tertiary); font-size: 1.15rem; cursor: pointer; }
+.portal-page,.pvp-page,.profile-page { display: block; }
+.portal-site-avatar-link:focus-visible,.portal-site-brand:focus-visible,.portal-site-links a:focus-visible,.portal-site-login:focus-visible,.portal-menu-toggle:focus-visible { outline: 3px solid var(--accent-secondary); outline-offset: 3px; }
+body.wordle-with-site-nav { display: block; overflow-x: hidden; background: radial-gradient(ellipse at 75% 0%, #17243b 0%, var(--bg-primary) 58%); color: var(--text-primary); }
+body.wordle-with-site-nav .main-content { min-height: calc(100vh - 88px); padding: 8px 20px 110px; }
+@media (max-width: 900px) {
+    .portal-site-nav { gap: 8px; }
+    .portal-site-brand { flex-basis: 150px; }
+    .portal-site-links { gap: 1px; }
+    .portal-site-links a { padding-inline: 7px; font-size: .82rem; }
+}
+@media (max-width: 700px) {
+    .portal-header-shell { width: calc(100% - 24px); margin: 12px auto 14px; }
+    .portal-site-nav { min-height: 52px; gap: 8px; padding: 6px 9px; }
+    .portal-site-brand { flex: 1 1 auto; max-width: calc(100% - 100px); }
+    .portal-site-links { position: absolute; top: calc(100% + 7px); right: 0; left: 0; z-index: 40; display: none; flex-direction: column; align-items: stretch; gap: 4px; padding: 8px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); box-shadow: var(--shadow-card); }
+    [data-site-navigation][data-open="true"] .portal-site-links { display: flex; }
+    .portal-site-links a { min-height: 44px; justify-content: flex-start; padding: 10px 12px; font-size: .92rem; }
+    .portal-mobile-profile-link { display: inline-flex; }
+    .portal-site-actions { gap: 7px; }
+    .portal-menu-toggle { display: inline-flex; flex: 0 0 40px; }
+    .portal-site-login { min-height: 38px; }
+    body.wordle-with-site-nav .main-content { min-height: 0; padding: 0 10px 88px; }
+}
+@media (max-width: 360px) {
+    .portal-header-shell { width: calc(100% - 16px); }
+    .portal-site-nav { padding-inline: 7px; }
+    .portal-site-brand { font-size: .9rem; }
+    .portal-site-avatar-link { flex-basis: 34px; width: 34px; height: 34px; }
+    .portal-menu-toggle { flex-basis: 36px; width: 36px; height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { .ds-card,.ds-button,.portal-site-links a,.portal-site-login,.portal-menu-toggle { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .ds-card,.ds-button,.portal-site-links a,.portal-site-login { transition: none; } }

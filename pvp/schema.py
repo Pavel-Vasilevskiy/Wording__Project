@@ -6,6 +6,9 @@ from models import db
 
 
 _ADDITIVE_COLUMNS = {
+    "user": {
+        "custom_avatar": "VARCHAR(255)",
+    },
     "pvp_lobby": {
         "words_per_match": "INTEGER NOT NULL DEFAULT 5",
         "mode": "VARCHAR(20) NOT NULL DEFAULT 'timer'",

@@ -1,3 +1,4 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -6,6 +7,7 @@
     <meta name="theme-color" content="#101827">
     <title>PvP Wordle — лобі</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
         body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
         [hidden] { display: none !important; }
@@ -35,15 +37,8 @@
     </style>
 </head>
 <body class="pvp-page">
+{{ site_navigation(active='pvp') }}
 <main class="pvp-shell">
-    <nav class="pvp-nav" aria-label="Навігація">
-        <a href="{{ url_for('index') }}">← До всіх ігор</a>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <a href="{{ url_for('pvp.global_leaderboard') }}">🏆 Рейтинг PvP</a>
-            <a href="{{ url_for('pvp.match_history') }}">Історія матчів</a>
-            <a href="{{ url_for('wordle') }}">Classic Wordle</a>
-        </div>
-    </nav>
     <section class="pvp-panel" id="pvp-lobby-list-page"
              data-refresh-url="{{ url_for('pvp.lobby_list_state') }}"
              data-create-url="{{ url_for('pvp.create_lobby') }}"

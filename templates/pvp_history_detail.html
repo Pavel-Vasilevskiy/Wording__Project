@@ -1,3 +1,4 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -6,6 +7,7 @@
     <meta name="theme-color" content="#101827">
     <title>PvP — результат матчу</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
         body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
         .history-shell { width: min(100% - 32px, 1040px); margin: 0 auto; padding: 24px 0 48px; }
@@ -41,10 +43,10 @@
     </style>
 </head>
 <body class="pvp-page">
+{{ site_navigation(active='history') }}
 <main class="history-shell">
     <nav class="history-nav" aria-label="Навігація результатів">
         <a href="{{ url_for('pvp.match_history') }}">← Назад до історії</a>
-        <a href="{{ url_for('pvp.lobby_list') }}">До PvP-лобі</a>
     </nav>
     <section class="history-panel">
         <h1>Результати матчу</h1>
@@ -65,7 +67,7 @@
                 <tr class="{{ 'history-left' if result.status == 'left' else '' }}">
                     <td>{% if result.place %}#{{ result.place }}{% else %}—{% endif %}{% if result.is_winner %} 🏆{% endif %}</td>
                     <td><span class="history-player">
-                        {% if result.avatar %}<img class="history-avatar" src="{{ result.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="history-avatar-fallback" aria-hidden="true">{{ result.name[:1]|upper or '?' }}</span>{% endif %}
+                        {% if result.avatar %}<img class="history-avatar" src="{{ result.avatar }}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="history-avatar-fallback" aria-hidden="true" hidden>{{ result.name[:1]|upper or '?' }}</span>{% else %}<span class="history-avatar-fallback" aria-hidden="true">{{ result.name[:1]|upper or '?' }}</span>{% endif %}
                         {{ result.name or 'Гравець' }}
                     </span></td>
                     <td>{{ result.green_points }}</td><td>{{ result.yellow_points }}</td><td>{{ result.time_bonus }}</td>

@@ -1,212 +1,229 @@
-<!DOCTYPE html>
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Профіль — {{ config["PORTAL_NAME"] }}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ user.name or 'Player' }} · {{ config['PORTAL_NAME'] }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
-        .profile-container {
-            max-width: 600px;
-            margin: 20px auto;
-            padding: 20px;
-        }
-        
-        .profile-header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding: 30px;
-            background: #1a1a1b;
-            border-radius: 10px;
-            border: 1px solid #3a3a3c;
-        }
-        
-        .profile-avatar {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            border: 3px solid #6aaa64;
-            margin-bottom: 15px;
-        }
-        
-        .profile-name {
-            color: #ffffff;
-            font-size: 1.8em;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        
-        .profile-email {
-            color: #c9b458;
-            font-size: 1em;
-            margin-bottom: 20px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-        
-        .stat-card {
-            background: #2a2a2b;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid #3a3a3c;
-        }
-        
-        .stat-value {
-            color: #6aaa64;
-            font-size: 2em;
-            font-weight: bold;
-            display: block;
-        }
-        
-        .stat-label {
-            color: #c9b458;
-            font-size: 0.9em;
-            margin-top: 5px;
-        }
-        
-        .recent-games {
-            margin-top: 40px;
-        }
-        
-        .section-title {
-            color: #ffffff;
-            font-size: 1.5em;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        
-        .games-list {
-            background: #1a1a1b;
-            border-radius: 8px;
-            border: 1px solid #3a3a3c;
-            overflow: hidden;
-        }
-        
-        .game-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 20px;
-            border-bottom: 1px solid #3a3a3c;
-        }
-        
-        .game-item:last-child {
-            border-bottom: none;
-        }
-        
-        .game-word {
-            color: #ffffff;
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-        
-        .game-result {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .game-status {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.8em;
-            font-weight: bold;
-        }
-        
-        .status-won {
-            background: #6aaa64;
-            color: white;
-        }
-        
-        .status-lost {
-            background: #d73027;
-            color: white;
-        }
-        
-        .game-tries {
-            color: #c9b458;
-            font-size: 0.9em;
-        }
-        
-        .back-link {
-            display: inline-block;
-            margin: 20px auto;
-            padding: 12px 24px;
-            background: #6aaa64;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: background-color 0.2s;
-        }
-        
-        .back-link:hover {
-            background: #5a9a54;
-            text-decoration: none;
-            color: white;
+        :root { --dash-bg:var(--bg-primary); --dash-card:var(--bg-secondary); --dash-soft:var(--bg-tertiary); --dash-text:var(--text-primary); --dash-muted:var(--text-secondary); --dash-blue:var(--accent-primary); --dash-cyan:var(--accent-secondary); --dash-green:var(--success); }
+        body { min-width:320px; color:var(--dash-text); background:radial-gradient(ellipse at 12% 0%,rgba(99,102,241,.16),transparent 36%),var(--dash-bg); }
+        .dashboard { width:min(1120px,calc(100% - 36px)); margin:0 auto; padding:32px 0 56px; }
+        .dash-nav,.profile-actions,.section-heading,.match-row,.match-main,.settings-row { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .dash-nav { margin-bottom:20px; }
+        .dash-nav a,.action-link { color:var(--dash-text); text-decoration:none; }
+        .dash-nav a:hover,.action-link:hover { color:var(--dash-cyan); }
+        .profile-hero { position:relative; overflow:hidden; display:flex; align-items:center; gap:22px; padding:clamp(20px,4vw,34px); border:1px solid #2b3852; border-radius:22px; background:linear-gradient(115deg,rgba(99,102,241,.2),transparent 46%),var(--dash-card); box-shadow:0 18px 50px rgba(0,0,0,.2); }
+        .profile-hero > * { position:relative; z-index:1; }
+        .avatar-wrap { position:relative; flex:0 0 92px; width:92px; height:92px; }
+        .avatar,.avatar-fallback { width:100%; height:100%; border:3px solid rgba(56,189,248,.7); border-radius:50%; object-fit:cover; }
+        .avatar[hidden],.avatar-fallback[hidden] { display:none; }
+        .avatar-fallback { display:grid; place-items:center; color:white; background:linear-gradient(135deg,var(--dash-blue),var(--dash-cyan)); font-size:2rem; font-weight:800; }
+        .profile-copy { min-width:0; flex:1; }
+        .eyebrow { margin:0 0 5px; color:#a5b4fc; font-size:.76rem; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+        .profile-name { overflow-wrap:anywhere; margin:0; font-size:clamp(1.6rem,4vw,2.45rem); line-height:1.12; }
+        .profile-since { margin:8px 0 0; color:var(--dash-muted); font-size:.9rem; }
+        .profile-badges { display:flex; flex-wrap:wrap; gap:9px; margin-top:15px; }
+        .profile-badge { padding:7px 11px; border:1px solid #354563; border-radius:999px; background:rgba(11,15,25,.45); color:#dbeafe; font-size:.88rem; }
+        .profile-badge strong { color:white; }
+        .profile-actions { position:relative; z-index:1; align-self:flex-start; flex-direction:column; align-items:flex-end; }
+        .action-link { padding:9px 13px; border:1px solid #425271; border-radius:10px; background:#101827; font-weight:700; white-space:nowrap; }
+        .logout-link { color:#fecaca; border-color:#713a48; }
+        .avatar-controls { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:9px; }
+        .avatar-control-form { margin:0; }
+        .avatar-control { color:var(--dash-text); border:1px solid #425271; border-radius:10px; background:#101827; padding:8px 11px; font:inherit; font-size:.82rem; font-weight:700; cursor:pointer; }
+        .avatar-control:hover { border-color:var(--dash-cyan); }
+        .avatar-control.danger { color:#fecaca; border-color:#713a48; }
+        .avatar-flashes { display:grid; gap:8px; margin:0 0 14px; }
+        .avatar-flash { padding:10px 13px; border:1px solid #425271; border-radius:10px; background:#101827; }
+        .avatar-flash.success { border-color:rgba(34,197,94,.45); color:#bbf7d0; }
+        .avatar-flash.error { border-color:rgba(239,68,68,.45); color:#fecaca; }
+        .avatar-dialog { width:min(420px,calc(100% - 28px)); padding:22px; color:var(--dash-text); border:1px solid #354563; border-radius:18px; background:var(--dash-card); box-shadow:0 22px 70px rgba(0,0,0,.55); }
+        .avatar-dialog::backdrop { background:rgba(3,7,18,.72); backdrop-filter:blur(3px); }
+        .avatar-dialog h2 { margin:0 0 7px; }
+        .avatar-dialog p { color:var(--dash-muted); }
+        .avatar-preview { display:block; width:160px; height:160px; margin:18px auto; border:3px solid rgba(56,189,248,.7); border-radius:50%; object-fit:cover; }
+        .avatar-dialog-actions { display:flex; justify-content:flex-end; gap:9px; }
+        .dashboard-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(260px,.85fr); gap:18px; margin-top:18px; align-items:start; }
+        .main-column,.side-column { display:grid; gap:18px; min-width:0; }
+        .panel { min-width:0; padding:21px; border:1px solid #26344c; border-radius:18px; background:rgba(20,27,45,.94); }
+        .section-heading { margin-bottom:15px; }
+        .section-heading h2 { margin:0; font-size:1.15rem; }
+        .section-heading p { margin:0; color:var(--dash-muted); font-size:.84rem; }
+        .stats-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:11px; }
+        .stat-card { min-width:0; padding:15px; border:1px solid #293953; border-radius:14px; background:linear-gradient(145deg,rgba(27,36,56,.96),rgba(16,24,39,.9)); }
+        .stat-top { display:flex; justify-content:space-between; gap:8px; color:var(--dash-muted); font-size:.82rem; }
+        .stat-icon { color:#7dd3fc; font-size:1.05rem; }
+        .stat-value { overflow-wrap:anywhere; display:block; margin-top:8px; color:#fff; font-size:clamp(1.35rem,3vw,1.8rem); font-weight:850; line-height:1.1; }
+        .stat-caption { margin-top:5px; color:#8292aa; font-size:.74rem; }
+        .rank-card { display:grid; grid-template-columns:auto 1fr; align-items:center; gap:14px; padding:17px; border:1px solid rgba(99,102,241,.45); border-radius:15px; background:linear-gradient(115deg,rgba(99,102,241,.18),rgba(56,189,248,.06)); }
+        .rank-number { color:#c7d2fe; font-size:2rem; font-weight:900; white-space:nowrap; }
+        .rank-label { color:var(--dash-muted); font-size:.82rem; }
+        .rank-progress { grid-column:1/-1; height:7px; overflow:hidden; border-radius:8px; background:#26334a; }
+        .rank-progress span { display:block; width:{{ stats.win_rate }}%; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--dash-blue),var(--dash-cyan)); }
+        .rank-progress-label { grid-column:1/-1; display:flex; justify-content:space-between; color:var(--dash-muted); font-size:.8rem; }
+        .match-list { display:grid; gap:9px; }
+        .match-row { padding:12px; border:1px solid #2b3852; border-radius:13px; background:#101827; }
+        .match-main { min-width:0; justify-content:flex-start; }
+        .match-mark { display:grid; place-items:center; flex:0 0 38px; width:38px; height:38px; border-radius:11px; color:#bbf7d0; background:rgba(34,197,94,.14); font-size:.72rem; font-weight:900; }
+        .match-mark.loss { color:#fecaca; background:rgba(239,68,68,.13); }
+        .match-mark.draw { color:#fde68a; background:rgba(234,179,8,.13); }
+        .match-mark.left { color:#cbd5e1; background:rgba(148,163,184,.15); }
+        .match-details { min-width:0; }
+        .match-title { overflow:hidden; display:block; color:#f8fafc; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+        .match-meta { display:block; margin-top:3px; color:var(--dash-muted); font-size:.78rem; }
+        .match-score { color:#86efac; font-weight:850; white-space:nowrap; }
+        .history-footer { display:flex; justify-content:flex-end; margin-top:12px; }
+        .empty-state { padding:20px 12px; border:1px dashed #3c4a63; border-radius:13px; color:var(--dash-muted); text-align:center; }
+        .empty-state p { margin:0 0 12px; }
+        .settings-list { display:grid; gap:0; }
+        .settings-row { padding:12px 0; border-bottom:1px solid #29364d; }
+        .settings-row:last-child { border:0; padding-bottom:0; }
+        .settings-name { color:#e2e8f0; font-weight:650; }
+        .settings-value { color:var(--dash-muted); font-size:.84rem; text-align:right; }
+        .classic-strip { display:flex; flex-wrap:wrap; gap:9px 18px; color:var(--dash-muted); font-size:.87rem; }
+        .classic-strip strong { color:#e2e8f0; }
+        a:focus-visible { outline:3px solid #f6d365; outline-offset:3px; }
+        @media(max-width:760px) { .dashboard-grid { grid-template-columns:1fr; } .side-column { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        @media(max-width:560px) {
+            .dashboard { width:calc(100% - 22px); padding:16px 0 30px; }
+            .profile-hero { align-items:flex-start; gap:13px; padding:16px; flex-wrap:wrap; }
+            .avatar-wrap { flex-basis:64px; width:64px; height:64px; }
+            .profile-actions { width:100%; flex-direction:row; align-items:center; justify-content:flex-start; }
+            .avatar-controls { justify-content:flex-start; }
+            .profile-badge { padding:6px 9px; font-size:.8rem; }
+            .panel { padding:15px; }
+            .stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+            .stat-card { padding:12px; }
+            .side-column { grid-template-columns:1fr; }
+            .match-row { gap:8px; padding:10px; }
+            .match-meta { line-height:1.35; }
         }
     </style>
 </head>
-<body>
-    <div class="profile-container">
-        <div class="profile-header">
-            <img src="{{ user.picture }}" alt="{{ user.name }}" class="profile-avatar">
-            <div class="profile-name">{{ user.name }}</div>
-            <div class="profile-email">{{ user.email }}</div>
-            
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="stat-value">{{ user.games_played }}</span>
-                    <div class="stat-label">Games Played</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ user.games_won }}</span>
-                    <div class="stat-label">Games Won</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ user.win_percentage }}%</span>
-                    <div class="stat-label">Win Rate</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ user.current_streak }}</span>
-                    <div class="stat-label">Current Streak</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value">{{ user.max_streak }}</span>
-                    <div class="stat-label">Best Streak</div>
-                </div>
+<body class="profile-page">
+{{ site_navigation(active='profile') }}
+<main class="dashboard">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="avatar-flashes" role="status">{% for category, message in messages %}<div class="avatar-flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    <header class="profile-hero dashboard-decoration dashboard-decoration--top-right dashboard-decoration--subtle">
+        <div class="avatar-wrap">
+            {% set effective_avatar = avatar_url(user=user) %}
+            {% if effective_avatar %}<img class="avatar" src="{{ effective_avatar }}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false">{% endif %}
+            <span class="avatar-fallback" aria-hidden="true" {% if effective_avatar %}hidden{% endif %}>{{ (user.name or '?')[:1]|upper }}</span>
+        </div>
+        <div class="profile-copy">
+            <p class="eyebrow">Player profile</p>
+            <h1 class="profile-name">{{ user.name or 'Player' }}</h1>
+            <p class="profile-since">Member since {{ user.created_at.strftime('%b %Y') if user.created_at else '—' }}</p>
+            <div class="profile-badges">
+                <span class="profile-badge"><strong>{{ '#' ~ rank if rank else 'Unranked' }}</strong> Global Rank</span>
+                <span class="profile-badge"><strong>{{ stats.matches_played }}</strong> PvP matches</span>
             </div>
         </div>
-        
-        {% if recent_games %}
-        <div class="recent-games">
-            <h2 class="section-title">Recent Games</h2>
-            <div class="games-list">
-                {% for game in recent_games %}
-                <div class="game-item">
-                    <div class="game-word">{{ game.target_word }}</div>
-                    <div class="game-result">
-                        <span class="game-status {{ 'status-won' if game.won else 'status-lost' }}">
-                            {{ 'WON' if game.won else 'LOST' }}
-                        </span>
-                        <span class="game-tries">{{ game.tries_used }}/6 tries</span>
-                    </div>
-                </div>
-                {% endfor %}
+        <div class="profile-actions">
+            {% if is_owner %}
+            <a class="action-link logout-link" href="{{ url_for('logout') }}">Log out</a>
+            <div class="avatar-controls">
+                <form id="avatar-upload-form" class="avatar-control-form" method="post" action="{{ url_for('upload_avatar') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ avatar_csrf_token }}">
+                    <input id="avatar-file" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+                    <button class="avatar-control" id="change-avatar" type="button">Change Avatar</button>
+                    <dialog class="avatar-dialog" id="avatar-preview-dialog" aria-labelledby="avatar-dialog-title">
+                        <h2 id="avatar-dialog-title">Preview avatar</h2>
+                        <p>Check the square crop before saving your new avatar.</p>
+                        <img class="avatar-preview" id="avatar-preview" alt="Selected avatar preview">
+                        <div class="avatar-dialog-actions">
+                            <button class="avatar-control" id="cancel-avatar" type="button">Cancel</button>
+                            <button class="avatar-control" id="save-avatar" type="submit">Save Avatar</button>
+                        </div>
+                    </dialog>
+                </form>
+                {% if user.custom_avatar %}<form class="avatar-control-form" method="post" action="{{ url_for('delete_avatar') }}" onsubmit="return confirm('Remove your custom avatar and use your Google photo or fallback?')"><input type="hidden" name="csrf_token" value="{{ avatar_csrf_token }}"><button class="avatar-control danger" type="submit">Remove Custom Avatar</button></form>{% endif %}
             </div>
+            {% endif %}
         </div>
-        {% endif %}
-        
-        <div style="text-align: center; margin-top: 30px;">
-            <a href="{{ url_for('pvp.match_history') }}" class="back-link">Історія PvP-матчів</a>
-            <a href="{{ url_for('index') }}" class="back-link">До каталогу ігор</a>
+    </header>
+
+    <div class="dashboard-grid">
+        <div class="main-column">
+            <section class="panel" aria-labelledby="stats-title">
+                <div class="section-heading"><h2 id="stats-title">PvP Statistics</h2><p>Lifetime performance</p></div>
+                <div class="stats-grid">
+                    <article class="stat-card"><div class="stat-top"><span>Total Matches</span><span class="stat-icon">◉</span></div><strong class="stat-value">{{ stats.matches_played }}</strong><div class="stat-caption">Completed match entries</div></article>
+                    <article class="stat-card"><div class="stat-top"><span>Wins</span><span class="stat-icon">✦</span></div><strong class="stat-value">{{ stats.wins }}</strong><div class="stat-caption">Including tied wins</div></article>
+                    <article class="stat-card"><div class="stat-top"><span>Win Rate</span><span class="stat-icon">↗</span></div><strong class="stat-value">{{ stats.win_rate }}%</strong><div class="stat-caption">Wins / matches played</div></article>
+                    <article class="stat-card"><div class="stat-top"><span>Total Points</span><span class="stat-icon">✧</span></div><strong class="stat-value">{{ stats.total_score }}</strong><div class="stat-caption">Accumulated PvP score</div></article>
+                    <article class="stat-card"><div class="stat-top"><span>Best Match</span><span class="stat-icon">♛</span></div><strong class="stat-value">{{ stats.best_match_score }}</strong><div class="stat-caption">Personal match record</div></article>
+                    <article class="stat-card"><div class="stat-top"><span>Average Attempts</span><span class="stat-icon">⌁</span></div><strong class="stat-value">{{ '%.2f'|format(stats.average_attempts) if stats.average_attempts is not none else '—' }}</strong><div class="stat-caption">Per solved word</div></article>
+                </div>
+            </section>
+
+            {% if is_owner %}
+            <section class="panel" aria-labelledby="history-title">
+                <div class="section-heading"><h2 id="history-title">Recent Matches</h2><p>Latest completed PvP games</p></div>
+                {% if recent_matches %}
+                <div class="match-list">
+                    {% for result in recent_matches %}
+                    {% set winner_count = result.match.results|selectattr('is_winner')|list|length %}
+                    {% set outcome = 'LEFT' if result.participation_status == 'left' else ('DRAW' if result.is_winner and winner_count > 1 else ('WIN' if result.is_winner else 'LOSS')) %}
+                    <article class="match-row">
+                        <div class="match-main">
+                            <span class="match-mark {{ outcome|lower }}">{{ outcome }}</span>
+                            <div class="match-details">
+                                <span class="match-title">{{ result.match.words_count }}-word · {{ 'Timer' if result.game_mode == 'timer' else 'No time limit' }}</span>
+                                <span class="match-meta">{{ result.match.completed_at.strftime('%d %b %Y') if result.match.completed_at else result.finalized_at.strftime('%d %b %Y') }} · {{ result.match.players|length }} players</span>
+                            </div>
+                        </div>
+                        <span class="match-score">{{ result.final_score }} pts</span>
+                        <a class="action-link" href="{{ url_for('pvp.match_history_detail', match_id=result.match_id) }}" aria-label="View match results">View</a>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state"><p>No completed PvP matches yet.</p><a class="action-link" href="{{ url_for('pvp.lobby_list') }}">Play your first match</a></div>
+                {% endif %}
+                <div class="history-footer"><a class="action-link" href="{{ url_for('pvp.match_history') }}">View All History</a></div>
+            </section>
+            {% endif %}
+
+            {% if is_owner %}
+            <section class="panel" aria-labelledby="classic-title">
+                <div class="section-heading"><h2 id="classic-title">Classic Wordle</h2><p>Personal game stats</p></div>
+                <div class="classic-strip"><span>Played <strong>{{ user.games_played or 0 }}</strong></span><span>Won <strong>{{ user.games_won or 0 }}</strong></span><span>Win rate <strong>{{ user.win_percentage }}%</strong></span><span>Current streak <strong>{{ user.current_streak or 0 }}</strong></span><span>Best streak <strong>{{ user.max_streak or 0 }}</strong></span></div>
+            </section>
+            {% endif %}
         </div>
+
+        <aside class="side-column">
+            <section class="panel" aria-labelledby="overview-title">
+                <div class="section-heading"><h2 id="overview-title">Competitive Overview</h2></div>
+                <div class="rank-card">
+                    <strong class="rank-number">{{ '#' ~ rank if rank else '—' }}</strong>
+                    <div><div class="rank-label">Global position</div><strong>{{ stats.total_score }} points</strong></div>
+                    <div class="rank-progress" role="progressbar" aria-label="Win rate" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ stats.win_rate }}"><span></span></div>
+                    <div class="rank-progress-label"><span>Win rate</span><strong>{{ stats.win_rate }}%</strong></div>
+                </div>
+                <div class="settings-list" style="margin-top:12px">
+                    <div class="settings-row"><span class="settings-name">Wins</span><strong class="settings-value">{{ stats.wins }}</strong></div>
+                    <div class="settings-row"><span class="settings-name">Best match</span><strong class="settings-value">{{ stats.best_match_score }}</strong></div>
+                    <div class="settings-row"><span class="settings-name">Matches</span><strong class="settings-value">{{ stats.matches_played }}</strong></div>
+                </div>
+            </section>
+            {% if is_owner %}
+            <section class="panel" aria-labelledby="settings-title">
+                <div class="section-heading"><h2 id="settings-title">Account Settings</h2></div>
+                <div class="settings-list">
+                    <div class="settings-row"><span class="settings-name">Interface language</span><span class="settings-value">Coming later</span></div>
+                    <div class="settings-row"><span class="settings-name">Theme</span><span class="settings-value">Coming later</span></div>
+                    <div class="settings-row"><span class="settings-name">Profile visibility</span><span class="settings-value">Public stats</span></div>
+                </div>
+            </section>
+            {% endif %}
+        </aside>
     </div>
+</main>
+{% if is_owner %}<script defer src="{{ url_for('static', filename='profile_avatar.js') }}"></script>{% endif %}
 </body>
 </html>

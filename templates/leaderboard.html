@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Рейтинг — {{ config["PORTAL_NAME"] }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
         .leaderboard-container {
             max-width: 700px;
@@ -75,11 +76,27 @@
         }
         
         .player-avatar {
+            display: block;
             width: 35px;
             height: 35px;
             border-radius: 50%;
             border: 2px solid #6aaa64;
+            object-fit: cover;
         }
+
+        .player-avatar-fallback {
+            display: grid;
+            width: 35px;
+            height: 35px;
+            flex: 0 0 35px;
+            place-items: center;
+            border: 2px solid #6aaa64;
+            border-radius: 50%;
+            color: #ffffff;
+            background: #334155;
+            font-weight: 800;
+        }
+        .player-avatar-fallback[hidden] { display: none; }
         
         .player-name {
             color: #ffffff;
@@ -179,7 +196,7 @@
                     {% endif %}
                 </div>
                 <div class="player-info">
-                    <img src="{{ player.picture }}" alt="{{ player.name }}" class="player-avatar">
+                    {% set player_avatar = avatar_url(user=player) %}{% if player_avatar %}<img src="{{ player_avatar }}" alt="{{ player.name }}" class="player-avatar" onerror="this.hidden=true;this.nextElementSibling.hidden=false">{% endif %}<span class="player-avatar-fallback" aria-hidden="true" {% if player_avatar %}hidden{% endif %}>{{ (player.name or '?')[:1]|upper }}</span>
                     <span class="player-name">{{ player.name }}</span>
                 </div>
                 <div class="stat-value games-count">{{ player.games_played }}</div>

@@ -1,3 +1,4 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -6,6 +7,7 @@
     <meta name="theme-color" content="#101827">
     <title>PvP Wordle — лобі</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
         body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
         .pvp-shell { width: min(100% - 36px, 760px); margin: 0 auto; padding: 28px 0 56px; }
@@ -45,6 +47,7 @@
     </style>
 </head>
 <body class="pvp-page">
+{{ site_navigation(active='pvp', show_profile=false, compact=true) }}
 <main class="pvp-shell">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <form class="pvp-return-form" method="post" action="{{ url_for('pvp.leave_lobby', public_id=lobby.public_id) }}">

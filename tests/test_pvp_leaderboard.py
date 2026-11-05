@@ -81,7 +81,7 @@ class PvPGlobalLeaderboardTests(unittest.TestCase):
         self.login(client, user)
         response = self.page(client)
         self.assertEqual(response.status_code, 200)
-        self.assertIn('href="/profile"'.encode(), response.data)
+        self.assertIn(f'href="/profile/{user.id}"'.encode(), response.data)
         self.assertIn("Rank Player 01".encode(), response.data)
         no_stats_user = User(google_id="pvp-rank-empty", email="empty@example.test", name="No games yet")
         db.session.add(no_stats_user)
@@ -155,7 +155,7 @@ class PvPGlobalLeaderboardTests(unittest.TestCase):
         self.add_player(2, 10, name="No Avatar")
         body = self.page(app.test_client()).get_data(as_text=True)
         self.assertIn("player-fallback", body)
-        self.assertIn('href="/pvp/"', body)
+        self.assertNotIn('class="portal-site-links"', body)
 
     def test_mobile_compact_rows_are_collapsed_and_expandable_without_affecting_desktop_table(self):
         for index in range(22):

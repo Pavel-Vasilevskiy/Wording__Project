@@ -1,3 +1,4 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
 <!DOCTYPE html>
 <html lang="uk">
 <head>
@@ -6,6 +7,7 @@
     <meta name="theme-color" content="#101827">
     <title>PvP — історія матчів</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
     <style>
         body.pvp-page { margin: 0; min-height: 100vh; color: #f8fafc; background: radial-gradient(ellipse at top, #233657 0, #101827 55%); font-family: Arial, sans-serif; }
         .history-shell { width: min(100% - 32px, 920px); margin: 0 auto; padding: 24px 0 48px; }
@@ -32,11 +34,8 @@
     </style>
 </head>
 <body class="pvp-page">
+{{ site_navigation(active='history') }}
 <main class="history-shell">
-    <nav class="history-nav" aria-label="Навігація історії">
-        <a href="{{ url_for('pvp.lobby_list') }}">← До PvP-лобі</a>
-        <a href="{{ url_for('pvp.global_leaderboard') }}">🏆 Глобальний рейтинг</a>
-    </nav>
     <section class="history-panel">
         <h1>Історія PvP-матчів</h1>
         <p class="history-muted">Завершені матчі, у яких ви брали участь.</p>

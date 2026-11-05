@@ -1,7 +1,12 @@
 import os
 import json
+import hmac
+import io
+import re
+import secrets
+import warnings
 from datetime import datetime
-from flask import Flask, request, render_template, url_for, jsonify, session, redirect, flash
+from flask import Flask, request, render_template, url_for, jsonify, session, redirect, flash, abort, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
@@ -19,7 +24,13 @@ from pvp.models import (
 from pvp.routes import pvp_bp
 from pvp.scoring import load_balance_config
 from pvp.schema import upgrade_pvp_schema
+from avatar_utils import avatar_url
 from word_dictionary import EN_US_DICTIONARY, get_random_answer, validate_guess
+from pvp.models import PvPMatch, PvPMatchResult, PvPPlayerStats
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
+from PIL import Image, ImageOps, UnidentifiedImageError
+from werkzeug.utils import secure_filename
 
 # Load environment variables
 load_dotenv()
@@ -30,6 +41,11 @@ app.config['PORTAL_NAME'] = os.getenv('PORTAL_NAME', 'Ігрова кімнат�
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///wordle_users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PVP_BALANCE'] = load_balance_config()
+app.config['AVATAR_UPLOAD_DIR'] = os.getenv(
+    'AVATAR_UPLOAD_DIR', os.path.join(app.instance_path, 'avatars')
+)
+app.config['AVATAR_MAX_BYTES'] = 5 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = app.config['AVATAR_MAX_BYTES'] + 128 * 1024
 
 # Initialize extensions
 db.init_app(app)
@@ -38,6 +54,170 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 oauth = OAuth(app)
 app.register_blueprint(pvp_bp)
+
+
+app.jinja_env.globals['avatar_url'] = avatar_url
+
+
+def _avatar_csrf_token():
+    token = session.get('avatar_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['avatar_csrf_token'] = token
+    return token
+
+
+def _check_avatar_csrf():
+    expected = session.get('avatar_csrf_token', '')
+    supplied = request.form.get('csrf_token', '')
+    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+        abort(400, description='Invalid form security token.')
+
+
+_AVATAR_FILENAME_RE = re.compile(r'^[0-9a-f]{32}\.webp$')
+_AVATAR_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
+_AVATAR_MIMES = {
+    'JPEG': {'image/jpeg', 'image/jpg'},
+    'PNG': {'image/png'},
+    'WEBP': {'image/webp'},
+}
+
+
+def _process_avatar_upload(upload):
+    """Validate and normalize an uploaded image into a metadata-free square WebP."""
+    original_name = secure_filename(upload.filename or '')
+    if not original_name or os.path.splitext(original_name)[1].lower() not in _AVATAR_EXTENSIONS:
+        raise ValueError('Unsupported file format.')
+    supplied_mime = (upload.mimetype or '').lower()
+    if supplied_mime and supplied_mime not in {
+        'application/octet-stream', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'
+    }:
+        raise ValueError('Unsupported file format.')
+    raw = upload.stream.read(app.config['AVATAR_MAX_BYTES'] + 1)
+    if len(raw) > app.config['AVATAR_MAX_BYTES']:
+        raise OverflowError('File is too large.')
+    if not raw:
+        raise ValueError('Unable to process image.')
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as probe:
+                image_format = probe.format
+                width, height = probe.size
+                if image_format not in _AVATAR_MIMES:
+                    raise ValueError('Unsupported file format.')
+                if supplied_mime and supplied_mime not in ('application/octet-stream',) and supplied_mime not in _AVATAR_MIMES[image_format]:
+                    raise ValueError('Unsupported file format.')
+                expected_mime = {'JPEG': {'.jpg', '.jpeg'}, 'PNG': {'.png'}, 'WEBP': {'.webp'}}[image_format]
+                if os.path.splitext(original_name)[1].lower() not in expected_mime:
+                    raise ValueError('Unsupported file format.')
+                if width < 1 or height < 1 or width > 8192 or height > 8192 or width * height > 16_000_000:
+                    raise ValueError('Unable to process image.')
+                probe.verify()
+        with Image.open(io.BytesIO(raw)) as source:
+            oriented = ImageOps.exif_transpose(source)
+            if oriented.mode not in ('RGB', 'RGBA'):
+                oriented = oriented.convert('RGBA' if 'transparency' in oriented.info else 'RGB')
+            square = ImageOps.fit(oriented, (512, 512), method=Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            square.save(output, format='WEBP', quality=90, method=6, exif=b'')
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError('Unable to process image.') from exc
+
+
+@app.route('/avatars/<filename>', methods=['GET'])
+def serve_avatar(filename):
+    if not _AVATAR_FILENAME_RE.fullmatch(filename or ''):
+        abort(404)
+    if not User.query.filter_by(custom_avatar=filename).first():
+        abort(404)
+    directory = app.config['AVATAR_UPLOAD_DIR']
+    response = send_from_directory(directory, filename, mimetype='image/webp', max_age=31536000)
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@app.route('/profile/avatar', methods=['POST'])
+@login_required
+def upload_avatar():
+    _check_avatar_csrf()
+    upload = request.files.get('avatar')
+    if not upload or not upload.filename:
+        flash('Choose an image to upload.', 'error')
+        return redirect(url_for('profile'))
+    try:
+        webp_data = _process_avatar_upload(upload)
+    except OverflowError:
+        flash('File is too large. Maximum size is 5 MB.', 'error')
+        return redirect(url_for('profile'))
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('profile'))
+
+    directory = app.config['AVATAR_UPLOAD_DIR']
+    filename = f'{secrets.token_hex(16)}.webp'
+    path = os.path.join(directory, filename)
+    old_filename = current_user.custom_avatar
+    try:
+        os.makedirs(directory, mode=0o750, exist_ok=True)
+        with open(path, 'xb') as target:
+            target.write(webp_data)
+        current_user.custom_avatar = filename
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        app.logger.exception('Avatar upload could not be committed')
+        flash('Upload failed. Please try again.', 'error')
+        return redirect(url_for('profile'))
+
+    if old_filename and old_filename != filename and _AVATAR_FILENAME_RE.fullmatch(old_filename):
+        if not User.query.filter_by(custom_avatar=old_filename).first():
+            try:
+                os.remove(os.path.join(directory, old_filename))
+            except OSError:
+                app.logger.warning('Could not remove replaced avatar file')
+    flash('Avatar updated successfully.', 'success')
+    return redirect(url_for('profile'))
+
+
+@app.route('/profile/avatar/delete', methods=['POST'])
+@login_required
+def delete_avatar():
+    _check_avatar_csrf()
+    old_filename = current_user.custom_avatar
+    if old_filename:
+        current_user.custom_avatar = None
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Avatar removal could not be committed')
+            flash('Unable to remove avatar. Please try again.', 'error')
+            return redirect(url_for('profile'))
+        if _AVATAR_FILENAME_RE.fullmatch(old_filename) and not User.query.filter_by(custom_avatar=old_filename).first():
+            try:
+                os.remove(os.path.join(app.config['AVATAR_UPLOAD_DIR'], old_filename))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                app.logger.warning('Could not remove deleted avatar file')
+    flash('Avatar removed.', 'success')
+    return redirect(url_for('profile'))
+
+
+@app.errorhandler(413)
+def handle_request_too_large(error):
+    if request.endpoint == 'upload_avatar':
+        flash('File is too large. Maximum size is 5 MB.', 'error')
+        return redirect(url_for('profile'))
+    return error
 
 # Configure Google OAuth
 google = oauth.register(
@@ -207,11 +387,75 @@ def logout():
 @app.route('/profile')
 @login_required
 def profile():
-    """User profile page with statistics"""
-    recent_games = GameSession.query.filter_by(user_id=current_user.id)\
-                                   .order_by(GameSession.created_at.desc())\
-                                   .limit(10).all()
-    return render_template('profile.html', user=current_user, recent_games=recent_games)
+    """Show the signed-in user's gaming dashboard."""
+    return _render_player_profile(current_user, is_owner=True)
+
+
+@app.route('/profile/<int:user_id>')
+def public_profile(user_id):
+    """Public, privacy-safe PvP profile for a player."""
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    is_owner = current_user.is_authenticated and current_user.id == user.id
+    if is_owner:
+        return _render_player_profile(user, is_owner=True)
+    return _render_player_profile(user, is_owner=False)
+
+
+def _render_player_profile(user, *, is_owner):
+    stats = db.session.get(PvPPlayerStats, user.id)
+    rank_query = db.session.query(
+        PvPPlayerStats.user_id.label('user_id'),
+        func.row_number().over(order_by=(
+            PvPPlayerStats.total_score.desc(),
+            PvPPlayerStats.wins.desc(),
+            PvPPlayerStats.best_match_score.desc(),
+            PvPPlayerStats.user_id.asc(),
+        )).label('rank'),
+    ).filter(PvPPlayerStats.matches_played > 0).subquery()
+    rank_row = db.session.query(rank_query.c.rank).filter(
+        rank_query.c.user_id == user.id
+    ).first()
+    rank = rank_row.rank if rank_row else None
+
+    recent_matches = []
+    average_attempts = None
+    if is_owner and stats is not None:
+        recent_matches = PvPMatchResult.query.options(
+            joinedload(PvPMatchResult.match).selectinload(PvPMatch.players),
+            joinedload(PvPMatchResult.match).selectinload(PvPMatch.results),
+        ).join(PvPMatch).filter(
+            PvPMatchResult.user_id == user.id,
+            PvPMatch.status == 'completed',
+        ).order_by(
+            func.coalesce(PvPMatch.completed_at, PvPMatchResult.finalized_at).desc(),
+            PvPMatch.id.desc(),
+        ).limit(5).all()
+        completed_results = PvPMatchResult.query.filter_by(
+            user_id=user.id, participation_status='completed'
+        ).all()
+        solved_words = sum(result.words_solved for result in completed_results)
+        if solved_words:
+            average_attempts = round(
+                sum(result.total_attempts for result in completed_results) / solved_words, 2
+            )
+
+    matches_played = stats.matches_played if stats else 0
+    wins = stats.wins if stats else 0
+    profile_stats = {
+        'matches_played': matches_played,
+        'wins': wins,
+        'win_rate': round(wins * 100 / matches_played, 1) if matches_played else 0,
+        'total_score': stats.total_score if stats else 0,
+        'best_match_score': stats.best_match_score if stats else 0,
+        'average_attempts': average_attempts,
+    }
+    return render_template(
+        'profile.html', user=user, stats=profile_stats, rank=rank,
+        recent_matches=recent_matches, is_owner=is_owner,
+        avatar_csrf_token=_avatar_csrf_token() if is_owner else None,
+    )
 
 @app.route('/guess', methods=['POST'])
 @login_required

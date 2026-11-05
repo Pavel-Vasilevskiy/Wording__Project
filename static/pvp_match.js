@@ -184,12 +184,19 @@
             card.className = `player-card${player.round_status === "left" ? " left" : ""}`;
             const head = document.createElement("div");
             head.className = "player-head";
-            const avatar = document.createElement(player.avatar && /^https:\/\//i.test(player.avatar) ? "img" : "span");
+            const avatar = document.createElement(player.avatar && (/^https:\/\//i.test(player.avatar) || /^\/avatars\/[0-9a-f]{32}\.webp$/i.test(player.avatar)) ? "img" : "span");
             avatar.className = "player-avatar";
             if (avatar.tagName === "IMG") {
                 avatar.src = player.avatar;
                 avatar.alt = "";
                 avatar.referrerPolicy = "no-referrer";
+                avatar.addEventListener("error", () => {
+                    const fallback = document.createElement("span");
+                    fallback.className = "player-avatar";
+                    fallback.textContent = (player.name || "?").trim().slice(0, 1).toUpperCase();
+                    fallback.setAttribute("aria-hidden", "true");
+                    avatar.replaceWith(fallback);
+                }, { once: true });
             } else {
                 avatar.textContent = (player.name || "?").trim().slice(0, 1).toUpperCase();
                 avatar.setAttribute("aria-hidden", "true");

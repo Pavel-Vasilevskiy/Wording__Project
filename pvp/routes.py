@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 
 from models import User, db
+from avatar_utils import avatar_url
 from pvp.models import (
     PvPLobby,
     PvPLobbyKickNotice,
@@ -99,6 +100,7 @@ def global_leaderboard():
         PvPPlayerStats.user_id.label("user_id"),
         User.name.label("name"),
         User.picture.label("picture"),
+        User.custom_avatar.label("custom_avatar"),
         PvPPlayerStats.total_score.label("total_score"),
         PvPPlayerStats.matches_played.label("matches_played"),
         PvPPlayerStats.wins.label("wins"),
@@ -292,7 +294,7 @@ def _match_results(match):
         ))
         return [{
             "name": result.user.name,
-            "avatar": result.user.picture,
+            "avatar": avatar_url(user=result.user),
             "status": result.participation_status,
             "place": result.place,
             "is_winner": bool(result.is_winner),
@@ -335,7 +337,7 @@ def _match_results(match):
                     categories[key] += value
         rows.append({
             "name": player.user.name,
-            "avatar": player.user.picture,
+            "avatar": avatar_url(user=player.user),
             "status": player.status,
             **categories,
             # The persisted aggregate is authoritative, including a frozen Left score.
@@ -518,7 +520,7 @@ def _match_state_payload(match, current_player, now):
                 color_rows.append(colors)
         players.append({
             "name": player.user.name,
-            "avatar": player.user.picture,
+            "avatar": avatar_url(user=player.user),
             "is_online": online,
             "status": round_status_for_player,
             "round_status": round_status_for_player,

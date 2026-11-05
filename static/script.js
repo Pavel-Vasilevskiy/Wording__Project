@@ -3,12 +3,16 @@ let gameOver = false;
 let submissionPending = false;
 let gameReady = false;
 let keyboardState = {}; // Track keyboard key states
+let newGamePending = false;
 
 // DOM elements
 const newGameButton = document.getElementById('new-game');
 const gameStatus = document.getElementById('game-status');
 const triesCount = document.getElementById('tries-count');
 const gameBoard = document.getElementById('game-board');
+const newGameDialog = document.getElementById('new-game-confirmation');
+const confirmNewGameButton = document.getElementById('confirm-new-game');
+const cancelNewGameButton = document.getElementById('cancel-new-game');
 
 gameBoard.addEventListener('animationend', function(e) {
     if (e.animationName === 'guess-row-shake') {
@@ -16,9 +20,7 @@ gameBoard.addEventListener('animationend', function(e) {
     }
 });
 
-// Sidebar elements
-const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-const sidebar = document.getElementById('sidebar');
+// Sidebar statistics are refreshed after a completed game and remain visible on desktop.
 const gamesCountEl = document.getElementById('games-count');
 const winRateEl = document.getElementById('win-rate');
 const currentStreakEl = document.getElementById('current-streak');
@@ -60,7 +62,7 @@ function updateCurrentGuess() {
 
 // Physical keyboard uses the same handlers as the on-screen keyboard.
 document.addEventListener('keydown', function(e) {
-    if (!gameReady || gameOver || submissionPending || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!gameReady || gameOver || submissionPending || newGameDialog.open || e.ctrlKey || e.metaKey || e.altKey) return;
 
     const target = e.target;
     if (target && typeof target.closest === 'function' &&
@@ -148,7 +150,7 @@ function submitGuess() {
                 showStatsUpdate(data.user_stats);
             }
         } else {
-            gameStatus.textContent = `Try ${data.tries}/6`;
+            gameStatus.textContent = '';
         }
 
         // Clear the active row after an accepted guess.
@@ -173,17 +175,21 @@ function updateGameBoard(result, rowIndex) {
     }
 }
 
-// New game
-newGameButton.addEventListener('click', function() {
-    if (!gameReady || submissionPending) return;
-
+function startNewGame() {
+    if (!gameReady || submissionPending || newGamePending) return;
+    newGamePending = true;
+    newGameButton.disabled = true;
+    confirmNewGameButton.disabled = true;
     fetch('/new_game', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         }
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) throw new Error('Could not start a new game');
+        return response.json();
+    })
     .then(data => {
         // Reset game state
         gameOver = false;
@@ -200,7 +206,40 @@ newGameButton.addEventListener('click', function() {
     .catch(error => {
         console.error('Error:', error);
         gameStatus.textContent = 'Error starting new game.';
+    })
+    .finally(() => {
+        newGamePending = false;
+        newGameButton.disabled = false;
+        confirmNewGameButton.disabled = false;
     });
+}
+
+newGameButton.addEventListener('click', function() {
+    if (!gameReady || submissionPending || newGamePending) return;
+    const hasProgress = gameOver || currentGuess.length > 0 || Number(triesCount.textContent) > 0;
+    if (hasProgress) {
+        newGameDialog.showModal();
+        return;
+    }
+    startNewGame();
+});
+
+confirmNewGameButton.addEventListener('click', function() {
+    if (!newGameDialog.open || newGamePending || submissionPending) return;
+    newGameDialog.close();
+    startNewGame();
+});
+
+cancelNewGameButton.addEventListener('click', function() {
+    if (newGameDialog.open) newGameDialog.close();
+});
+
+newGameDialog.addEventListener('close', function() {
+    newGameButton.focus();
+});
+
+newGameDialog.addEventListener('cancel', function() {
+    if (newGameDialog.open) newGameDialog.close();
 });
 
 // Pointer clicks should not leave a game key focused. Keyboard activation
@@ -380,24 +419,6 @@ function showStatsUpdate(userStats) {
     }, 4000);
 }
 
-// Mobile menu functionality
-function initializeMobileMenu() {
-    if (mobileMenuBtn && sidebar) {
-        mobileMenuBtn.addEventListener('click', function() {
-            sidebar.classList.toggle('open');
-        });
-        
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', function(e) {
-            if (window.innerWidth <= 480) {
-                if (!sidebar.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
-                    sidebar.classList.remove('open');
-                }
-            }
-        });
-    }
-}
-
 // Update sidebar statistics
 function updateSidebarStats(stats) {
     if (gamesCountEl) gamesCountEl.textContent = stats.games_played || 0;
@@ -405,11 +426,6 @@ function updateSidebarStats(stats) {
     if (currentStreakEl) currentStreakEl.textContent = stats.current_streak || 0;
     if (maxStreakEl) maxStreakEl.textContent = stats.max_streak || 0;
 }
-
-// Initialize mobile menu when page loads
-document.addEventListener('DOMContentLoaded', function() {
-    initializeMobileMenu();
-});
 
 // Initialize the game board on page load
 initializeGameBoard();
@@ -431,6 +447,7 @@ fetch('/game_state')
         });
 
         triesCount.textContent = state.tries;
+        newGameButton.disabled = false;
         currentGuess = '';
         gameOver = state.game_over;
         updateCurrentGuess();
@@ -439,7 +456,7 @@ fetch('/game_state')
         } else if (state.game_over) {
             gameStatus.textContent = `😞 Game over! The word was: ${state.target_word}`;
         } else if (state.tries > 0) {
-            gameStatus.textContent = `Try ${state.tries}/6`;
+            gameStatus.textContent = '';
         } else {
             gameStatus.textContent = 'Welcome to Wordle! Enter a 5-letter word to start.';
         }

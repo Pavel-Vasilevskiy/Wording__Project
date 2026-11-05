@@ -1,0 +1,32 @@
+{% macro site_navigation(active='', show_profile=True, show_login=False, compact=False, wordle=False) %}
+{% set menu_id = 'portal-site-menu-' ~ active|default('main', true) %}
+<header class="portal-header-shell{% if compact %} portal-header-shell--compact{% endif %}{% if wordle %} portal-header-shell--wordle{% endif %}" data-site-navigation data-open="false">
+    <nav class="portal-site-nav" aria-label="Навігація порталу">
+        <a class="portal-site-brand" href="{{ url_for('index') }}">{{ config.get('PORTAL_NAME', 'Ігрова кімната') }}</a>
+        {% if current_user.is_authenticated %}
+        <div class="portal-site-links" id="{{ menu_id }}" data-site-menu>
+            <a href="{{ url_for('wordle') }}" {% if active == 'classic' %}aria-current="page"{% endif %}>Classic Wordle</a>
+            <a href="{{ url_for('pvp.lobby_list') }}" {% if active == 'pvp' %}aria-current="page"{% endif %}>PvP Lobby</a>
+            <a href="{{ url_for('pvp.global_leaderboard') }}" {% if active == 'leaderboard' %}aria-current="page"{% endif %}>Leaderboard</a>
+            <a href="{{ url_for('pvp.match_history') }}" {% if active == 'history' %}aria-current="page"{% endif %}>Match History</a>
+            {% if show_profile %}<a class="portal-mobile-profile-link" href="{{ url_for('profile') }}" {% if active == 'profile' %}aria-current="page"{% endif %}>Profile</a>{% endif %}
+        </div>
+        <div class="portal-site-actions">
+            {% if show_profile %}
+            <a class="portal-site-avatar-link" href="{{ url_for('profile') }}" aria-label="Профіль {{ current_user.name }}" {% if active == 'profile' %}aria-current="page"{% endif %}>
+                {% set current_avatar = avatar_url(user=current_user) %}
+                {% if current_avatar %}<img src="{{ current_avatar }}" alt="" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false">{% endif %}
+                <span class="portal-site-avatar-fallback" aria-hidden="true" {% if current_avatar %}hidden{% endif %}>{{ (current_user.name or '?')[:1]|upper }}</span>
+            </a>
+            {% endif %}
+            <button class="portal-menu-toggle" type="button" aria-label="Відкрити меню" aria-expanded="false" aria-controls="{{ menu_id }}" data-site-menu-toggle>
+                <span aria-hidden="true">☰</span>
+            </button>
+        </div>
+        {% elif show_login %}
+        <a class="portal-site-login" href="{{ url_for('login') }}">Увійти</a>
+        {% endif %}
+    </nav>
+</header>
+<script defer src="{{ url_for('static', filename='site_navigation.js') }}"></script>
+{% endmacro %}
