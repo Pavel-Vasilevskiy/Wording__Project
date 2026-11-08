@@ -4,12 +4,15 @@ import hmac
 import io
 import re
 import secrets
+import uuid
 import warnings
 from datetime import datetime
 from flask import Flask, request, render_template, url_for, jsonify, session, redirect, flash, abort, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
+from sqlalchemy import case, func, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
 from models import db, User, GameSession
 from pvp.models import (
@@ -245,6 +248,61 @@ def pick_word(previous_word=None):
         exclude=(previous_word or "",),
     ).upper()
 
+
+def _ensure_classic_game_id():
+    game_id = session.get('game_id')
+    if not isinstance(game_id, str) or not re.fullmatch(r'[0-9a-f]{32}', game_id):
+        game_id = uuid.uuid4().hex
+        session['game_id'] = game_id
+    return game_id
+
+
+def _classic_user_stats():
+    return {
+        'games_played': current_user.games_played or 0,
+        'games_won': current_user.games_won or 0,
+        'win_percentage': current_user.win_percentage,
+        'current_streak': current_user.current_streak or 0,
+        'max_streak': current_user.max_streak or 0,
+    }
+
+
+def _record_classic_result(game_id, target_word, guesses, won, tries):
+    """Record one terminal or abandoned game and update account totals once."""
+    result_insert = sqlite_insert(GameSession).values(
+        game_id=game_id,
+        user_id=current_user.id,
+        target_word=target_word,
+        guesses=json.dumps(guesses),
+        won=bool(won),
+        tries_used=tries,
+        completed_at=datetime.utcnow(),
+    ).on_conflict_do_nothing(index_elements=[GameSession.game_id])
+    inserted = db.session.execute(result_insert).rowcount == 1
+    if inserted:
+        next_streak = func.coalesce(User.current_streak, 0) + 1
+        next_best = case(
+            (next_streak > func.coalesce(User.max_streak, 0), next_streak),
+            else_=func.coalesce(User.max_streak, 0),
+        )
+        db.session.execute(
+            update(User).where(User.id == current_user.id).values(
+                games_played=func.coalesce(User.games_played, 0) + 1,
+                games_won=func.coalesce(User.games_won, 0) + (1 if won else 0),
+                current_streak=case(
+                    (bool(won), next_streak),
+                    else_=0,
+                ),
+                max_streak=case(
+                    (bool(won), next_best),
+                    else_=func.coalesce(User.max_streak, 0),
+                ),
+            )
+        )
+    db.session.commit()
+    db.session.refresh(current_user)
+    return inserted
+
 def check_guess(guess, target_word):
     """Check the guess against target word and return color coding"""
     result = []
@@ -278,6 +336,8 @@ def wordle():
         session['guesses'] = []
         session['game_over'] = False
         session['won'] = False
+        session['game_id'] = uuid.uuid4().hex
+    _ensure_classic_game_id()
     
     return render_template("index.html", user=current_user, portal_name=app.config['PORTAL_NAME'])
 
@@ -474,6 +534,7 @@ def make_guess():
         return jsonify({'error': validation_error}), 400
 
     target_word = session.get('target_word')
+    _ensure_classic_game_id()
     guesses = list(session.get('guesses', []))
     # The saved guess history is authoritative; this prevents its length and
     # the current row counter from drifting apart.
@@ -491,19 +552,9 @@ def make_guess():
     # If game is over, save to database and update user stats
     if game_over:
         try:
-            game_session = GameSession(
-                user_id=current_user.id,
-                target_word=target_word,
-                guesses=json.dumps(guesses),
-                won=won,
-                tries_used=tries,
-                completed_at=datetime.utcnow()
+            _record_classic_result(
+                _ensure_classic_game_id(), target_word, guesses, won, tries
             )
-            db.session.add(game_session)
-
-            # Update account statistics in the same transaction as the result.
-            current_user.update_stats(won, tries)
-            db.session.commit()
         except SQLAlchemyError:
             db.session.rollback()
             app.logger.exception('Could not persist completed game for user %s', current_user.id)
@@ -521,13 +572,7 @@ def make_guess():
         'game_over': game_over,
         'won': won,
         'target_word': target_word if game_over else None,
-        'user_stats': {
-            'games_played': current_user.games_played,
-            'games_won': current_user.games_won,
-            'win_percentage': current_user.win_percentage,
-            'current_streak': current_user.current_streak,
-            'max_streak': current_user.max_streak
-        } if game_over else None
+        'user_stats': _classic_user_stats() if game_over else None
     }
     
     return jsonify(response_data)
@@ -535,13 +580,41 @@ def make_guess():
 @app.route('/new_game', methods=['POST'])
 @login_required
 def new_game():
-    """Start a new game"""
+    """Record an in-progress abandoned loss, then start a fresh game."""
+    guesses = session.get('guesses', [])
+    if not isinstance(guesses, list):
+        guesses = []
+    attempts = len(guesses)
+    abandoned_loss = False
+    game_over = bool(session.get('game_over', False))
+    target_word = session.get('target_word')
+
+    # A zero-attempt game is free to restart. Terminal results were already
+    # committed by /guess and must never be counted again here.
+    if attempts and not game_over and EN_US_DICTIONARY.contains(target_word):
+        try:
+            _record_classic_result(
+                _ensure_classic_game_id(), target_word, guesses, False, attempts
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception('Could not persist abandoned game for user %s', current_user.id)
+            return jsonify({
+                'error': 'Unable to record this game result. Please try again; your current game is unchanged.'
+            }), 503
+        abandoned_loss = True
+
     session['target_word'] = pick_word(session.get('target_word'))
     session['tries'] = 0
     session['guesses'] = []
     session['game_over'] = False
     session['won'] = False
-    return jsonify({'message': 'New game started'})
+    session['game_id'] = uuid.uuid4().hex
+    return jsonify({
+        'message': 'New game started',
+        'abandoned_loss': abandoned_loss,
+        'user_stats': _classic_user_stats() if abandoned_loss else None,
+    })
 
 @app.route('/leaderboard')
 @login_required

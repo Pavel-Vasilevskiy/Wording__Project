@@ -186,26 +186,30 @@ function startNewGame() {
             'Content-Type': 'application/json',
         }
     })
-    .then(response => {
-        if (!response.ok) throw new Error('Could not start a new game');
-        return response.json();
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not start a new game');
+        return data;
     })
     .then(data => {
         // Reset game state
         gameOver = false;
         currentGuess = '';
         triesCount.textContent = '0';
-        gameStatus.textContent = 'New game started! Good luck!';
+        gameStatus.textContent = data.message || 'New game started! Good luck!';
         
         // Reset displays
         initializeGameBoard();
         resetKeyboard();
         updateCurrentGuess();
         gameReady = true;
+        if (data.abandoned_loss && data.user_stats) {
+            showStatsUpdate(data.user_stats);
+        }
     })
     .catch(error => {
         console.error('Error:', error);
-        gameStatus.textContent = 'Error starting new game.';
+        gameStatus.textContent = error.message || 'Error starting new game.';
     })
     .finally(() => {
         newGamePending = false;
@@ -216,8 +220,8 @@ function startNewGame() {
 
 newGameButton.addEventListener('click', function() {
     if (!gameReady || submissionPending || newGamePending) return;
-    const hasProgress = gameOver || currentGuess.length > 0 || Number(triesCount.textContent) > 0;
-    if (hasProgress) {
+    const hasUnfinishedAttempts = !gameOver && Number(triesCount.textContent) > 0;
+    if (hasUnfinishedAttempts) {
         newGameDialog.showModal();
         return;
     }

@@ -9,6 +9,9 @@ _ADDITIVE_COLUMNS = {
     "user": {
         "custom_avatar": "VARCHAR(255)",
     },
+    "game_session": {
+        "game_id": "VARCHAR(36)",
+    },
     "pvp_lobby": {
         "words_per_match": "INTEGER NOT NULL DEFAULT 5",
         "mode": "VARCHAR(20) NOT NULL DEFAULT 'timer'",
@@ -55,4 +58,12 @@ def upgrade_pvp_schema(engine=None):
                     "UPDATE pvp_lobby_member "
                     "SET last_seen_at = CURRENT_TIMESTAMP "
                     "WHERE last_seen_at = '1970-01-01 00:00:00'"
+                )
+
+        if inspect(connection).has_table("game_session"):
+            columns = {column["name"] for column in inspect(connection).get_columns("game_session")}
+            if "game_id" in columns:
+                connection.exec_driver_sql(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS "uq_game_session_game_id" '
+                    'ON "game_session" ("game_id")'
                 )

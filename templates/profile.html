@@ -191,7 +191,7 @@
             {% if is_owner %}
             <section class="panel" aria-labelledby="classic-title">
                 <div class="section-heading"><h2 id="classic-title">Classic Wordle</h2><p>Personal game stats</p></div>
-                <div class="classic-strip"><span>Played <strong>{{ user.games_played or 0 }}</strong></span><span>Won <strong>{{ user.games_won or 0 }}</strong></span><span>Win rate <strong>{{ user.win_percentage }}%</strong></span><span>Current streak <strong>{{ user.current_streak or 0 }}</strong></span><span>Best streak <strong>{{ user.max_streak or 0 }}</strong></span></div>
+                <div class="classic-strip"><span>Played <strong>{{ user.games_played or 0 }}</strong></span><span>Won <strong>{{ user.games_won or 0 }}</strong></span><span>Win rate <strong>{{ user.win_percentage }}%</strong></span><span>Current streak <strong>{{ user.current_streak or 0 }}</strong></span><span>Best streak <strong>{{ user.max_streak or 0 }}</strong></span><a class="action-link classic-leaderboard-link" href="{{ url_for('leaderboard') }}">Classic Leaderboard</a></div>
             </section>
             {% endif %}
         </div>

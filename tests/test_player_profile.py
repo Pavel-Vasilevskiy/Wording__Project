@@ -97,6 +97,8 @@ class PlayerProfileTests(unittest.TestCase):
         self.assertIn("Recent Matches", page)
         self.assertIn(f"/pvp/history/{match.id}", page)
         self.assertIn("Account Settings", page)
+        self.assertIn('href="/leaderboard"', page)
+        self.assertIn("Classic Leaderboard", page)
         self.assertNotIn(user.email, page)
         self.assertNotIn(user.google_id, page)
         self.assertIn('href="/logout"', page)

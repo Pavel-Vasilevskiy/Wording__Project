@@ -106,9 +106,15 @@ class PortalHomeTests(unittest.TestCase):
         game = client.get("/wordle")
         self.assertEqual(game.status_code, 200)
         page = game.get_data(as_text=True)
-        sidebar_actions = page.split('<div class="sidebar-actions">', 1)[1].split('</div>', 1)[0]
+        sidebar_markup = page.split('<div class="sidebar" id="sidebar">', 1)[1].split('<div class="main-content">', 1)[0]
+        for stat_id in ('games-count', 'win-rate', 'current-streak', 'max-streak'):
+            self.assertIn(f'id="{stat_id}"', sidebar_markup)
+        self.assertNotIn('sidebar-avatar', sidebar_markup)
+        self.assertNotIn('sidebar-username', sidebar_markup)
+        self.assertNotIn('sidebar-actions', page)
+        self.assertNotIn('Logout', page)
+        self.assertNotIn('Leaderboard</a>', sidebar_markup)
         self.assertEqual(page.count('id="new-game"'), 1)
-        self.assertNotIn('id="new-game"', sidebar_actions)
         self.assertIn('class="classic-new-game"', page)
         self.assertIn('id="new-game-confirmation"', page)
         self.assertIn('id="confirm-new-game"', page)
@@ -122,6 +128,7 @@ class PortalHomeTests(unittest.TestCase):
         self.assertNotIn('id="guess-input"', page)
         self.assertNotIn('id="submit-guess"', page)
         self.assertNotIn('class="portal-game-home" href="/logout"', page)
+        self.assertNotIn('Wordle by Pavlo', page)
 
         before_navigation = client.get("/game_state").get_json()
         self.assertEqual(client.get("/").status_code, 200)

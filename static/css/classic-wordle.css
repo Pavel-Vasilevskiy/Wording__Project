@@ -87,11 +87,17 @@ body.wordle-with-site-nav .game-info { margin: 10px 0 0; color: var(--text-secon
 body.wordle-with-site-nav .game-footer { border-top-color: var(--border-color); background: rgba(11, 15, 25, .96); }
 body.wordle-with-site-nav .game-footer p { color: var(--text-secondary); }
 body.wordle-with-site-nav .sidebar {
-    top: 90px;
-    height: calc(100vh - 90px);
+    --classic-sidebar-offset: 90px;
+    top: var(--classic-sidebar-offset);
+    bottom: 0;
+    height: auto;
+    padding: 18px;
+    gap: 0;
     border-right: 1px solid var(--border-color);
     background: linear-gradient(165deg, #141b2d 0%, #0f1727 100%);
+    z-index: 20;
 }
+body.wordle-with-site-nav .sidebar-stats { gap: 12px; }
 body.wordle-with-site-nav .sidebar-header { border-bottom-color: var(--border-color); }
 body.wordle-with-site-nav .sidebar-avatar { border-color: var(--accent-secondary); }
 body.wordle-with-site-nav .sidebar-avatar-fallback { display: grid; width: 58px; height: 58px; place-items: center; border: 2px solid var(--accent-secondary); border-radius: 50%; color: var(--text-primary); background: linear-gradient(135deg,var(--accent-primary),var(--accent-secondary)); font-weight: 800; }
@@ -145,7 +151,7 @@ body.wordle-with-site-nav .classic-confirm-actions button:disabled { cursor: wai
     body.wordle-with-site-nav .key { height: clamp(42px, 11vw, 48px); border-radius: 6px; font-size: clamp(.72rem, 3.2vw, .86rem); }
     body.wordle-with-site-nav .key-enter,
     body.wordle-with-site-nav .key-backspace { flex-grow: 1.35; font-size: clamp(.58rem, 2.4vw, .68rem); }
-    body.wordle-with-site-nav .sidebar { top: 78px; width: min(270px, 84vw); height: calc(100vh - 78px); }
+    body.wordle-with-site-nav .sidebar { --classic-sidebar-offset: 78px; width: min(270px, 84vw); }
 }
 
 @media (max-width: 700px) {

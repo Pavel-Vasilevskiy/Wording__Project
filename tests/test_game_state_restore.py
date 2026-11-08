@@ -120,6 +120,12 @@ class GameStateRestoreTests(unittest.TestCase):
 
         client.post("/guess", json={"guess": "crane"})
         self.assertEqual(client.post("/new_game").status_code, 200)
+        user = User.query.filter_by(google_id="restore-test").one()
+        self.assertEqual(user.games_played, 1)
+        self.assertEqual(user.games_won, 0)
+        abandoned = GameSession.query.filter_by(user_id=user.id).one()
+        self.assertFalse(abandoned.won)
+        self.assertEqual(abandoned.tries_used, 1)
         state = client.get("/game_state").get_json()
         self.assertEqual(state["tries"], 0)
         self.assertEqual(state["guesses"], [])

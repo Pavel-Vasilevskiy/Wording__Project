@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
+from sqlalchemy import Index
 
 db = SQLAlchemy()
 
@@ -53,6 +54,11 @@ class GameSession(db.Model):
     tries_used = db.Column(db.Integer, default=0)
     completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    game_id = db.Column(db.String(36), nullable=True)
+
+    __table_args__ = (
+        Index("uq_game_session_game_id", "game_id", unique=True),
+    )
     
     def __repr__(self):
         return f'<GameSession {self.id}: {self.target_word}>'

@@ -90,6 +90,7 @@ function makeGame(initialState = { guesses: [], tries: 0, game_over: false, won:
     const sent = [];
     let guessResponses = [];
     let gameState = initialState;
+    let newGameResponse = { ok: true, json: async () => ({ message: 'New game started' }) };
     const document = {
         body: new FakeElement('body'),
         head: new FakeElement('head'),
@@ -118,8 +119,10 @@ function makeGame(initialState = { guesses: [], tries: 0, game_over: false, won:
                 return Promise.resolve({ ok: true, json: async () => gameState });
             }
             if (url === '/new_game') {
-                gameState = { guesses: [], tries: 0, game_over: false, won: false, target_word: null };
-                return Promise.resolve({ ok: true, json: async () => ({ message: 'New game started' }) });
+                if (newGameResponse.ok) {
+                    gameState = { guesses: [], tries: 0, game_over: false, won: false, target_word: null };
+                }
+                return Promise.resolve(newGameResponse);
             }
             const result = guessResponses.shift() || {
                 result: 'CRANE'.split('').map(letter => ({ letter, status: 'gray' })),
@@ -143,6 +146,7 @@ function makeGame(initialState = { guesses: [], tries: 0, game_over: false, won:
     return {
         document, elements, keyButtons, sent, keydown, flush, tileText,
         setGuessResponses(responses) { guessResponses = [...responses]; },
+        setNewGameResponse(response) { newGameResponse = response; },
     };
 }
 
@@ -346,10 +350,47 @@ test('Cancel and Escape preserve the current game while confirming New Game send
 test('New Game starts without confirmation when the current game has no progress', async () => {
     const game = makeGame();
     await game.flush();
+    game.keydown('A');
+    assert.equal(game.tileText(0), 'A');
     game.elements.get('new-game').dispatch('click');
     await game.flush();
     assert.equal(game.elements.get('new-game-confirmation').open, false);
     assert.equal(game.sent.filter(item => item.url === '/new_game').length, 1);
+    assert.equal(game.tileText(0), '');
+});
+
+test('New Game skips confirmation after either terminal result', async () => {
+    for (const won of [true, false]) {
+        const game = makeGame({
+            guesses: ['CRANE'.split('').map(letter => ({ letter, status: won ? 'green' : 'gray' }))],
+            tries: won ? 1 : 6,
+            game_over: true,
+            won,
+            target_word: 'CRANE',
+        });
+        await game.flush();
+        game.elements.get('new-game').dispatch('click');
+        await game.flush();
+        assert.equal(game.elements.get('new-game-confirmation').open, false);
+        assert.equal(game.sent.filter(item => item.url === '/new_game').length, 1);
+        assert.equal(game.elements.get('tries-count').textContent, '0');
+    }
+});
+
+test('failed abandoned-result save keeps the current board and attempts', async () => {
+    const result = 'CRANE'.split('').map(letter => ({ letter, status: 'gray' }));
+    const game = makeGame({ guesses: [result], tries: 1, game_over: false, won: false });
+    await game.flush();
+    game.setNewGameResponse({
+        ok: false,
+        json: async () => ({ error: 'Unable to record this game result. Please try again.' }),
+    });
+    game.elements.get('new-game').dispatch('click');
+    game.elements.get('confirm-new-game').dispatch('click');
+    await game.flush();
+    assert.equal(game.elements.get('tries-count').textContent, 1);
+    assert.equal(game.tileText(0), 'CRANE');
+    assert.match(game.elements.get('game-status').textContent, /Unable to record/);
 });
 
 test('keyboard color priority keeps the most informative color across accepted guesses', async () => {

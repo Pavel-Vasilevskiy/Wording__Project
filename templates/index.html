@@ -12,13 +12,8 @@
 <body class="wordle-with-site-nav">
     {{ site_navigation(active='classic', compact=true, wordle=true) }}
     {% if user %}
-    <!-- Left Sidebar for User Stats -->
+    <!-- Classic Wordle statistics only. Account and portal links live in shared navigation/profile. -->
     <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            {% set current_avatar = avatar_url(user=user) %}{% if current_avatar %}<img src="{{ current_avatar }}" alt="{{ user.name }}" class="sidebar-avatar" onerror="this.hidden=true;this.nextElementSibling.hidden=false">{% endif %}<span class="sidebar-avatar-fallback" aria-hidden="true" {% if current_avatar %}hidden{% endif %}>{{ (user.name or '?')[:1]|upper }}</span>
-            <h3 class="sidebar-username">{{ user.name }}</h3>
-        </div>
-        
         <div class="sidebar-stats">
             <div class="stat-item">
                 <div class="stat-number" id="games-count">{{ user.games_played }}</div>
@@ -36,11 +31,6 @@
                 <div class="stat-number" id="max-streak">{{ user.max_streak }}</div>
                 <div class="stat-label">Best</div>
             </div>
-        </div>
-        
-        <div class="sidebar-actions">
-            <a href="{{ url_for('leaderboard') }}" class="sidebar-btn">🏆 Leaderboard</a>
-            <a href="{{ url_for('logout') }}" class="sidebar-btn">🚪 Logout</a>
         </div>
     </div>
     {% endif %}
@@ -115,11 +105,6 @@
             </div>
         </div>
     </dialog>
-
-    <!-- Footer -->
-    <footer class="game-footer">
-        <p>Wordle by Pavlo</p>
-    </footer>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
