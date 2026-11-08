@@ -1,0 +1,10 @@
+{% extends "cyberpunk_warehouse_admin/base.html" %}
+{% block title %}Game Modes · Cyberpunk Warehouse Admin{% endblock %}
+{% block content %}
+<section class="cw-admin-panel">
+    <div class="cw-panel-heading"><div><h2>Game mode registry</h2><p class="cw-muted">Each mode has an independent server-side configuration validator.</p></div><span class="cw-state cw-state--foundation">{{ modes|length }} modes</span></div>
+    <div class="cw-mode-list">
+    {% for mode in modes %}<article class="cw-mode-card"><div class="cw-panel-heading"><div><h3>{{ mode.display_name }}</h3><p class="cw-muted">{{ mode.description }}</p></div><code>{{ mode.key }}</code></div><details><summary>Configuration schema and defaults</summary><div class="cw-json-columns"><div><h4>Schema</h4><pre>{{ mode.configuration_schema|tojson(indent=2) }}</pre></div><div><h4>Defaults</h4><pre>{{ mode.default_configuration|tojson(indent=2) }}</pre></div></div></details></article>{% endfor %}
+    </div>
+</section>
+{% endblock %}

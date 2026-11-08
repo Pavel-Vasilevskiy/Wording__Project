@@ -1,0 +1,11 @@
+{% extends "cyberpunk_warehouse_admin/base.html" %}
+{% block title %}{{ section_title }} · Cyberpunk Warehouse Admin{% endblock %}
+{% block content %}
+<section class="cw-admin-panel cw-planned-panel">
+    <span class="cw-state cw-state--planned">Planned · not implemented</span>
+    <h2>{{ section_title }}</h2>
+    <p class="cw-muted">{{ section_description }}</p>
+    <p>This page is a roadmap marker only. It does not provide editing or management actions yet.</p>
+    <a class="ds-button ds-button--secondary" href="{{ url_for('cyberpunk_warehouse_admin.dashboard') }}">Return to dashboard</a>
+</section>
+{% endblock %}

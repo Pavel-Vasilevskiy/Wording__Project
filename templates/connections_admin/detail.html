@@ -1,0 +1,14 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ puzzle.title }} · Connections</title><link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/connections-admin.css') }}"></head>
+<body class="connections-admin-page">
+{{ site_navigation(active='connections-admin') }}
+<main class="ca-shell">
+    <header class="ca-heading"><div><p class="ca-eyebrow">Puzzle #{{ puzzle.id }} · {{ puzzle.language }}</p><h1>{{ puzzle.title }}</h1><p class="ca-muted">Created {{ puzzle.created_at.strftime('%Y-%m-%d %H:%M') if puzzle.created_at else '—' }} · Updated {{ puzzle.updated_at.strftime('%Y-%m-%d %H:%M') if puzzle.updated_at else '—' }}</p></div><div class="ca-heading-actions"><a class="ds-button" href="{{ url_for('connections_admin.edit_puzzle', puzzle_id=puzzle.id) }}">Edit puzzle</a><a class="ds-button ds-button--secondary" href="{{ url_for('connections_admin.library') }}">Back to library</a></div></header>
+    <section class="ca-detail-grid">
+        {% for category in puzzle.categories %}<article class="ds-card ca-category ca-category--{{ category.difficulty }}"><div class="ca-detail-heading"><div><span class="ca-eyebrow">{{ category.difficulty|capitalize }}</span><h2>{{ category.name or 'Untitled category' }}</h2></div><span class="ca-category-number">{{ loop.index }}/4</span></div>{% if category.description %}<p class="ca-muted">{{ category.description }}</p>{% endif %}<ul class="ca-word-list">{% for word in category.words if word.text %}<li>{{ word.text }}</li>{% else %}<li class="ca-muted">No words yet</li>{% endfor %}</ul></article>{% endfor %}
+    </section>
+</main>
+</body>
+</html>

@@ -34,6 +34,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.utils import secure_filename
+from connections.models import ConnectionsPuzzle, ConnectionsCategory, ConnectionsWord
+from connections.routes import register_connections_admin
+from cyberpunk_warehouse import register_blueprints as register_cyberpunk_warehouse_blueprints
+from cyberpunk_warehouse import seed_builtin_game_modes as seed_cyberpunk_game_modes
 
 # Load environment variables
 load_dotenv()
@@ -57,6 +61,8 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 oauth = OAuth(app)
 app.register_blueprint(pvp_bp)
+register_connections_admin(app)
+register_cyberpunk_warehouse_blueprints(app)
 
 
 app.jinja_env.globals['avatar_url'] = avatar_url
@@ -637,10 +643,11 @@ def leaderboard():
 
 
 def initialize_database():
-    """Create missing tables and apply additive PvP upgrades without dropping data."""
+    """Create missing tables, apply additive upgrades, and seed new built-in modes."""
     with app.app_context():
         db.create_all()
         upgrade_pvp_schema()
+        seed_cyberpunk_game_modes()
 
 
 if __name__ == '__main__':

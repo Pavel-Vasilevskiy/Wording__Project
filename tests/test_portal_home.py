@@ -46,11 +46,11 @@ class PortalHomeTests(unittest.TestCase):
         self.assertIn('aria-label="Режими Wordle"', page)
         self.assertIn("PvP Multiplayer", page)
         self.assertIn('class="game-mode-pvp" href="/pvp/"', page)
-        self.assertIn("Судоку", page)
-        self.assertIn("Memory", page)
+        self.assertNotIn("Судоку", page)
+        self.assertNotIn("Memory", page)
         self.assertEqual(page.count('class="game-link"'), 1)
-        self.assertIn('class="coming-soon"', page)
-        self.assertEqual(page.count('class="game-card"'), 3)
+        self.assertNotIn('class="coming-soon"', page)
+        self.assertEqual(page.count('class="game-card"'), 1)
         self.assertEqual(app.test_client().get("/pvp/").status_code, 302)
 
     def test_homepage_is_public_and_wordle_keeps_login_requirement(self):

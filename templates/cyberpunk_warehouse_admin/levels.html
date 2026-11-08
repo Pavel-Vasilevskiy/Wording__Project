@@ -1,0 +1,9 @@
+{% extends "cyberpunk_warehouse_admin/base.html" %}
+{% block title %}Levels · Cyberpunk Warehouse Admin{% endblock %}
+{% block content %}
+<section class="cw-admin-panel">
+    <div class="cw-panel-heading"><div><h2>Level catalog</h2><p class="cw-muted">Foundation overview only. Level creation and editing are planned for a later iteration.</p></div><span class="cw-state cw-state--foundation">{{ levels|length }} shown</span></div>
+    {% if levels %}<div class="cw-table-wrap"><table class="cw-table"><thead><tr><th>Number</th><th>Name</th><th>Mode</th><th>Difficulty</th><th>Status</th><th>Timer</th></tr></thead><tbody>{% for level in levels %}<tr><td data-label="Number">{{ level.level_number }}</td><td data-label="Name">{{ level.name }}</td><td data-label="Mode">{{ level.game_mode.display_name if level.game_mode else '—' }}</td><td data-label="Difficulty">{{ level.difficulty|capitalize }}</td><td data-label="Status">{{ level.status|capitalize }}</td><td data-label="Timer">{{ level.time_limit_seconds ~ ' sec' if level.time_limit_seconds else 'None' }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="cw-empty"><h3>No levels yet</h3><p>The level data model is ready; the editor will be added in a future iteration.</p></div>{% endif %}
+</section>
+{% endblock %}

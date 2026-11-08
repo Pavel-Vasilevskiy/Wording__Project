@@ -1,4 +1,4 @@
-"""Additive SQLite schema upgrades for existing PvP installations."""
+"""Additive SQLite schema upgrades for existing portal installations."""
 
 from sqlalchemy import inspect
 
@@ -8,6 +8,7 @@ from models import db
 _ADDITIVE_COLUMNS = {
     "user": {
         "custom_avatar": "VARCHAR(255)",
+        "is_admin": "BOOLEAN NOT NULL DEFAULT 0",
     },
     "game_session": {
         "game_id": "VARCHAR(36)",
@@ -36,7 +37,7 @@ _ADDITIVE_COLUMNS = {
 
 
 def upgrade_pvp_schema(engine=None):
-    """Add missing PvP columns in place and retain all existing lobby data."""
+    """Add missing portal columns in place and retain all existing data."""
     engine = engine or db.engine
     with engine.begin() as connection:
         inspector = inspect(connection)

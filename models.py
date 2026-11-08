@@ -13,6 +13,7 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(100), nullable=False)
     picture = db.Column(db.String(200))
     custom_avatar = db.Column(db.String(255), nullable=True)
+    is_admin = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Game statistics

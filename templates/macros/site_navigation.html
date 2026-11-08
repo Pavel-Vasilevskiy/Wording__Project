@@ -9,6 +9,8 @@
             <a href="{{ url_for('pvp.lobby_list') }}" {% if active == 'pvp' %}aria-current="page"{% endif %}>PvP Lobby</a>
             <a href="{{ url_for('pvp.global_leaderboard') }}" {% if active == 'leaderboard' %}aria-current="page"{% endif %}>Leaderboard</a>
             <a href="{{ url_for('pvp.match_history') }}" {% if active == 'history' %}aria-current="page"{% endif %}>Match History</a>
+            {% if current_user.is_admin %}<a href="{{ url_for('connections_admin.library') }}" {% if active == 'connections-admin' %}aria-current="page"{% endif %}>Connections Admin</a>{% endif %}
+            {% if current_user.is_admin %}<a href="{{ url_for('cyberpunk_warehouse_admin.dashboard') }}" {% if active == 'cyberpunk-admin' %}aria-current="page"{% endif %}>Cyberpunk Warehouse Admin</a>{% endif %}
             {% if show_profile %}<a class="portal-mobile-profile-link" href="{{ url_for('profile') }}" {% if active == 'profile' %}aria-current="page"{% endif %}>Profile</a>{% endif %}
         </div>
         <div class="portal-site-actions">

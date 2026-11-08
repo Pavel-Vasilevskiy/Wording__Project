@@ -1,0 +1,39 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ 'Edit' if puzzle else 'Create' }} Connections Puzzle</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/connections-admin.css') }}">
+</head>
+<body class="connections-admin-page">
+{{ site_navigation(active='connections-admin') }}
+<main class="ca-shell">
+    <header class="ca-heading"><div><p class="ca-eyebrow">Puzzle Library</p><h1>{{ 'Edit puzzle #' ~ puzzle.id if puzzle else 'Create puzzle' }}</h1><p class="ca-muted">Enter a title and organize words into four clear categories.</p></div><a class="ds-button ds-button--secondary" href="{{ url_for('connections_admin.library') }}">Back to library</a></header>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="ca-flashes" role="alert">{% for category, message in messages %}<p class="ca-flash ca-flash--{{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}{% endwith %}
+    <form class="ca-editor" method="post" action="{{ url_for('connections_admin.edit_puzzle', puzzle_id=puzzle.id) if puzzle else url_for('connections_admin.create_puzzle') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <section class="ds-card ca-general"><h2>General information</h2><div class="ca-general-grid">
+            <label>Puzzle title<input class="ds-input" name="title" maxlength="120" required value="{{ form_data.title }}" autocomplete="off"></label>
+            <label>Language<select class="ds-input" name="language"><option value="en" {% if form_data.language == 'en' %}selected{% endif %}>English (en)</option>{% if form_data.language != 'en' %}<option value="{{ form_data.language }}" selected>{{ form_data.language }}</option>{% endif %}</select></label>
+            <label>Status<select class="ds-input" name="status">{% for value in ['draft','review','approved','archived'] %}<option value="{{ value }}" {% if form_data.status == value %}selected{% endif %}>{{ value|capitalize }}</option>{% endfor %}</select><small>Drafts may be incomplete. Review and Approved require four complete categories with 16 unique words.</small></label>
+        </div></section>
+        <div class="ca-category-grid">
+        {% for category in form_data.categories %}
+            {% set category_index = loop.index0 %}{% set category_number = loop.index %}
+            <fieldset class="ds-card ca-category ca-category--{{ category.difficulty }}">
+                <legend>Category {{ category_number }}</legend>
+                {% if category.id %}<input type="hidden" name="category_{{ category_index }}_id" value="{{ category.id }}">{% endif %}
+                <label>Category name<input class="ds-input" name="category_{{ category_index }}_name" maxlength="100" value="{{ category.name }}" placeholder="e.g. Pets"></label>
+                <label>Difficulty<select class="ds-input" name="category_{{ category_index }}_difficulty">{% for value in ['yellow','green','blue','purple'] %}<option value="{{ value }}" {% if category.difficulty == value %}selected{% endif %}>{{ value|capitalize }}</option>{% endfor %}</select></label>
+                <div class="ca-words"><span class="ca-field-label">Four associated words</span>{% for word in category.words %}<label class="ca-word-field"><span>{{ loop.index }}</span><input class="ds-input" name="category_{{ category_index }}_word_{{ loop.index0 }}" maxlength="60" value="{{ word }}" autocomplete="off" aria-label="Category {{ category_number }} word {{ loop.index }}"></label>{% endfor %}</div>
+                <label>Description <span class="ca-optional">optional</span><textarea class="ds-input" name="category_{{ category_index }}_description" maxlength="500" rows="3">{{ category.description }}</textarea></label>
+            </fieldset>
+        {% endfor %}
+        </div>
+        <div class="ca-editor-actions"><a class="ds-button ds-button--ghost" href="{{ url_for('connections_admin.library') }}">Cancel</a><button class="ds-button" type="submit">{{ 'Save changes' if puzzle else 'Create puzzle' }}</button></div>
+    </form>
+</main>
+</body>
+</html>

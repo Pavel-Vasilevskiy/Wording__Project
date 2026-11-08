@@ -1,0 +1,26 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Cyberpunk Warehouse Admin{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='cyberpunk_warehouse/css/admin.css') }}">
+</head>
+<body class="cw-admin-page">
+{{ site_navigation(active='cyberpunk-admin') }}
+<main class="cw-admin-shell">
+    <header class="cw-admin-heading">
+        <div><p class="cw-eyebrow">Game Administration</p><h1>Cyberpunk Warehouse</h1><p class="cw-muted">Architecture and content foundation · gameplay is not enabled.</p></div>
+        <a class="ds-button ds-button--secondary" href="{{ url_for('cyberpunk_warehouse_admin.dashboard') }}">Admin dashboard</a>
+    </header>
+    <nav class="cw-admin-nav" aria-label="Cyberpunk Warehouse administration">
+        <a href="{{ url_for('cyberpunk_warehouse_admin.dashboard') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.levels') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.levels' %}aria-current="page"{% endif %}>Levels</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.game_modes') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.game_modes' %}aria-current="page"{% endif %}>Game Modes</a>
+        {% for key,title in [('products','Products'),('customers','Customers'),('orders','Orders'),('settings','Settings'),('assets','Assets'),('analytics','Analytics')] %}<a href="{{ url_for('cyberpunk_warehouse_admin.planned_section', section_key=key) }}">{{ title }} <span>Planned</span></a>{% endfor %}
+    </nav>
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,59 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Connections Puzzle Library</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/connections-admin.css') }}">
+</head>
+<body class="connections-admin-page">
+{{ site_navigation(active='connections-admin') }}
+<main class="ca-shell">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <header class="ca-heading">
+        <div><p class="ca-eyebrow">Connections</p><h1>Puzzle Library</h1><p class="ca-muted">Create and maintain the puzzle catalog.</p></div>
+        <a class="ds-button" href="{{ url_for('connections_admin.create_puzzle') }}">Create puzzle</a>
+    </header>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="ca-flashes" role="status">{% for category, message in messages %}<p class="ca-flash ca-flash--{{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    {% endwith %}
+    <section class="ca-summary" aria-label="Puzzle totals">
+        <article class="ds-card"><span>Total puzzles</span><strong>{{ counts.values()|sum }}</strong></article>
+        <article class="ds-card"><span>Drafts</span><strong>{{ counts.draft }}</strong></article>
+        <article class="ds-card"><span>Approved</span><strong>{{ counts.approved }}</strong></article>
+        <article class="ds-card"><span>Archived</span><strong>{{ counts.archived }}</strong></article>
+    </section>
+    <section class="ds-card ca-library" aria-labelledby="library-title">
+        <div class="ca-section-heading"><h2 id="library-title">Puzzles</h2><span class="ca-muted">{{ pagination.total }} total</span></div>
+        <form class="ca-filters" method="get" action="{{ url_for('connections_admin.library') }}">
+            <label>Search title<input class="ds-input" name="q" value="{{ search }}" maxlength="100" placeholder="Search puzzles"></label>
+            <label>Status<select class="ds-input" name="status"><option value="">All statuses</option>{% for value in ['draft','review','approved','archived'] %}<option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ value|capitalize }}</option>{% endfor %}</select></label>
+            <label>Language<select class="ds-input" name="language"><option value="">All languages</option>{% for value in languages %}<option value="{{ value }}" {% if language == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+            <label>Sort by<select class="ds-input" name="sort">{% for value,label in [('created','Created'),('updated','Updated'),('title','Title'),('language','Language'),('status','Status'),('id','ID')] %}<option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+            <label>Order<select class="ds-input" name="direction"><option value="desc" {% if direction == 'desc' %}selected{% endif %}>Descending</option><option value="asc" {% if direction == 'asc' %}selected{% endif %}>Ascending</option></select></label>
+            <button class="ds-button ds-button--secondary" type="submit">Apply</button>
+        </form>
+        {% if puzzles %}
+        <div class="ca-table-wrap"><table class="ca-table"><thead><tr><th>ID</th><th>Title</th><th>Language</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>
+        {% for puzzle in puzzles %}<tr>
+            <td data-label="ID">{{ puzzle.id }}</td><td data-label="Title" class="ca-title-cell">{{ puzzle.title }}</td><td data-label="Language">{{ puzzle.language }}</td>
+            <td data-label="Status"><span class="ds-badge ca-status ca-status--{{ puzzle.status }}">{{ puzzle.status|capitalize }}</span></td>
+            <td data-label="Created">{{ puzzle.created_at.strftime('%Y-%m-%d %H:%M') if puzzle.created_at else '—' }}</td>
+            <td data-label="Actions"><div class="ca-actions"><a href="{{ url_for('connections_admin.edit_puzzle', puzzle_id=puzzle.id) }}">Edit</a><a href="{{ url_for('connections_admin.puzzle_detail', puzzle_id=puzzle.id) }}">Details</a>
+                {% if puzzle.status != 'archived' %}<form method="post" action="{{ url_for('connections_admin.archive_puzzle', puzzle_id=puzzle.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Archive</button></form>{% endif %}
+                <form method="post" action="{{ url_for('connections_admin.delete_puzzle', puzzle_id=puzzle.id) }}" onsubmit="return confirm('Delete this unused puzzle?')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="ca-danger-link" type="submit">Delete</button></form>
+            </div></td>
+        </tr>{% endfor %}
+        </tbody></table></div>
+        <nav class="ca-pagination" aria-label="Puzzle pages">
+            {% if pagination.has_prev %}<a class="ds-button ds-button--secondary ds-button--small" href="{{ url_for('connections_admin.library', page=pagination.prev_num, q=search, status=status, language=language, sort=sort, direction=direction) }}">Previous</a>{% else %}<span></span>{% endif %}
+            <span>Page {{ pagination.page }} of {{ pagination.pages or 1 }}</span>
+            {% if pagination.has_next %}<a class="ds-button ds-button--secondary ds-button--small" href="{{ url_for('connections_admin.library', page=pagination.next_num, q=search, status=status, language=language, sort=sort, direction=direction) }}">Next</a>{% else %}<span></span>{% endif %}
+        </nav>
+        {% else %}<div class="ca-empty"><h3>No puzzles found</h3><p>Adjust the filters or create a puzzle to begin the library.</p></div>{% endif %}
+    </section>
+</main>
+</body>
+</html>
