@@ -1,0 +1,18 @@
+{% extends "cyberpunk_warehouse_admin/base.html" %}
+{% block title %}{{ form_title }} · Cyberpunk Warehouse{% endblock %}
+{% block content %}
+<section class="cw-admin-panel cw-form-panel"><div class="cw-panel-heading"><div><h2>{{ form_title }}</h2><p class="cw-muted">Product information and reusable artwork assignment.</p></div><a href="{{ url_for('cyberpunk_warehouse_admin.products') }}">Back to products</a></div>
+<form method="post" class="cw-form"><input type="hidden" name="csrf_token" value="{{ cw_csrf_token() }}">
+    <div class="cw-form-grid"><label>Name<input name="name" required maxlength="120" value="{{ request.form.get('name', product.name) }}"></label><label>Internal key<input name="internal_key" required maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ request.form.get('internal_key', product.internal_key) }}"><small>Unique lowercase key, for example neon-soda.</small></label>
+    <label>Category<select name="category_id"><option value="">Uncategorized</option>{% for category in categories %}<option value="{{ category.id }}" {% if (request.form.get('category_id', product.category_id|string if product.category_id else '')) == category.id|string %}selected{% endif %}>{{ category.name }}{% if not category.is_active %} (inactive){% endif %}</option>{% endfor %}</select><small><a href="{{ url_for('cyberpunk_warehouse_admin.category_new') }}">Create a category</a></small></label>
+    <label>Rarity<select name="rarity">{% for rarity in ['common','uncommon','rare','epic','legendary'] %}<option value="{{ rarity }}" {% if request.form.get('rarity', product.rarity) == rarity %}selected{% endif %}>{{ rarity|title }}</option>{% endfor %}</select></label>
+    <label>Spawn weight<input type="number" name="spawn_weight" min="1" step="1" required value="{{ request.form.get('spawn_weight', product.spawn_weight) }}"></label><label>Display order<input type="number" name="sort_order" min="0" step="1" value="{{ request.form.get('sort_order', product.sort_order) }}"></label>
+    <label class="cw-span-2">Description<textarea name="description" maxlength="600" rows="3">{{ request.form.get('description', product.description or '') }}</textarea></label>
+    <label>Product artwork<select name="image_asset_id"><option value="">No artwork</option>{% for asset in assets %}<option value="{{ asset.id }}" {% if request.form.get('image_asset_id', product.image_asset_id|string if product.image_asset_id else '') == asset.id|string %}selected{% endif %}>{{ asset.alt_text or asset.asset_key }} · {{ asset.width }}×{{ asset.height }}</option>{% endfor %}</select></label>
+    <label class="cw-checkbox"><input type="checkbox" name="is_active" value="1" {% if request.form.get('is_active', '1' if product.is_active else '') == '1' %}checked{% endif %}> Active</label>
+    </div>
+    {% if product.image_asset %}<div class="cw-current-art"><img class="cw-thumb" src="{{ cw_asset_url(product.image_asset) }}" alt="{{ product.image_asset.alt_text or product.name }}"><span>Current artwork</span></div>{% endif %}
+    {% if not assets %}<p class="cw-muted">No product artwork uploaded yet. <a href="{{ url_for('cyberpunk_warehouse_admin.assets') }}">Upload artwork</a>.</p>{% endif %}
+    <div class="cw-actions"><button class="ds-button ds-button--primary" type="submit">Save product</button><a class="ds-button ds-button--secondary" href="{{ url_for('cyberpunk_warehouse_admin.products') }}">Cancel</a></div>
+</form></section>
+{% endblock %}

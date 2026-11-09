@@ -16,10 +16,15 @@
     </header>
     <nav class="cw-admin-nav" aria-label="Cyberpunk Warehouse administration">
         <a href="{{ url_for('cyberpunk_warehouse_admin.dashboard') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
-        <a href="{{ url_for('cyberpunk_warehouse_admin.levels') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.levels' %}aria-current="page"{% endif %}>Levels</a>
-        <a href="{{ url_for('cyberpunk_warehouse_admin.game_modes') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.game_modes' %}aria-current="page"{% endif %}>Game Modes</a>
-        {% for key,title in [('products','Products'),('customers','Customers'),('orders','Orders'),('settings','Settings'),('assets','Assets'),('analytics','Analytics')] %}<a href="{{ url_for('cyberpunk_warehouse_admin.planned_section', section_key=key) }}">{{ title }} <span>Planned</span></a>{% endfor %}
+        <a href="{{ url_for('cyberpunk_warehouse_admin.products') }}" {% if request.endpoint in ['cyberpunk_warehouse_admin.products','cyberpunk_warehouse_admin.product_new','cyberpunk_warehouse_admin.product_edit'] %}aria-current="page"{% endif %}>Products</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.categories') }}" {% if request.endpoint in ['cyberpunk_warehouse_admin.categories','cyberpunk_warehouse_admin.category_new','cyberpunk_warehouse_admin.category_edit'] %}aria-current="page"{% endif %}>Categories</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.customers') }}" {% if request.endpoint in ['cyberpunk_warehouse_admin.customers','cyberpunk_warehouse_admin.customer_new','cyberpunk_warehouse_admin.customer_edit'] %}aria-current="page"{% endif %}>Customers</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.assets') }}" {% if request.endpoint in ['cyberpunk_warehouse_admin.assets','cyberpunk_warehouse_admin.serve_asset'] %}aria-current="page"{% endif %}>Assets</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.levels') }}" {% if request.endpoint in ['cyberpunk_warehouse_admin.levels','cyberpunk_warehouse_admin.level_new','cyberpunk_warehouse_admin.level_edit','cyberpunk_warehouse_admin.level_preview'] %}aria-current="page"{% endif %}>Levels</a>
+        <a href="{{ url_for('cyberpunk_warehouse_admin.game_modes') }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.game_modes' %}aria-current="page"{% endif %}>Game Modes <span>Foundation</span></a>
+        {% for key,title in [('orders','Orders'),('settings','Game Settings'),('analytics','Analytics')] %}<a href="{{ url_for('cyberpunk_warehouse_admin.planned_section', section_key=key) }}" {% if request.endpoint == 'cyberpunk_warehouse_admin.planned_section' and request.view_args.section_key == key %}aria-current="page"{% endif %}>{{ title }} <span>Planned</span></a>{% endfor %}
     </nav>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="cw-flashes" role="status">{% for category,message in messages %}<p class="cw-flash cw-flash--{{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}{% endwith %}
     {% block content %}{% endblock %}
 </main>
 </body>

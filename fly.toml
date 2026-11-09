@@ -29,6 +29,7 @@ primary_region = "fra"
   PORT = "8080"
   DATABASE_URL = "sqlite:////data/wordle_users.db"
   AVATAR_UPLOAD_DIR = "/data/avatars"
+  CYBERPUNK_ASSET_DIR = "/data/cyberpunk_warehouse/assets"
 
 [mounts]
   source = "wordle_data"

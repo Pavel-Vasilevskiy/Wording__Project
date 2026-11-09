@@ -1,0 +1,30 @@
+{% extends "cyberpunk_warehouse_admin/base.html" %}
+{% block title %}Products · Cyberpunk Warehouse{% endblock %}
+{% block content %}
+<section class="cw-admin-panel">
+    <div class="cw-panel-heading"><div><h2>Products</h2><p class="cw-muted">Catalog items available for future warehouse levels.</p></div><a class="ds-button ds-button--primary" href="{{ url_for('cyberpunk_warehouse_admin.product_new') }}">Add product</a></div>
+    <form class="cw-filters" method="get">
+        <label>Search<input type="search" name="q" value="{{ search }}" maxlength="100" placeholder="Name or internal key"></label>
+        <label>Category<select name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category.id }}" {% if selected_category == category.id|string %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></label>
+        <label>Status<select name="status"><option value="all" {% if selected_status == 'all' %}selected{% endif %}>All</option><option value="active" {% if selected_status == 'active' %}selected{% endif %}>Active</option><option value="archived" {% if selected_status == 'archived' %}selected{% endif %}>Archived</option></select></label>
+        <label>Sort<select name="sort"><option value="sort_order" {% if sort == 'sort_order' %}selected{% endif %}>Display order</option><option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option><option value="rarity" {% if sort == 'rarity' %}selected{% endif %}>Rarity</option><option value="weight" {% if sort == 'weight' %}selected{% endif %}>Spawn weight</option></select></label>
+        <label>Direction<select name="direction"><option value="asc" {% if direction == 'asc' %}selected{% endif %}>Ascending</option><option value="desc" {% if direction == 'desc' %}selected{% endif %}>Descending</option></select></label>
+        <button class="ds-button ds-button--secondary" type="submit">Apply</button>
+    </form>
+    {% if pagination.items %}<div class="cw-catalog-grid">{% for product in pagination.items %}
+        <article class="cw-record-card">
+            {% if product.image_asset %}<img class="cw-thumb" src="{{ cw_asset_url(product.image_asset) }}" alt="{{ product.image_asset.alt_text or product.name }}">{% else %}<div class="cw-thumb cw-thumb--empty" aria-label="No artwork">No art</div>{% endif %}
+            <div class="cw-record-main"><div class="cw-record-title"><h3>{{ product.name }}</h3><span class="cw-state {% if product.is_active %}cw-state--foundation{% else %}cw-state--planned{% endif %}">{{ 'Active' if product.is_active else 'Archived' }}</span></div>
+                <p class="cw-muted"><code>{{ product.internal_key }}</code> · {{ product.product_category.name if product.product_category else (product.category or 'Uncategorized') }}</p>
+                <p class="cw-record-meta">{{ product.rarity|title }} · Weight {{ product.spawn_weight }} · Order {{ product.sort_order }}</p>
+                {% if product.description %}<p>{{ product.description }}</p>{% endif %}
+                <div class="cw-actions"><a class="ds-button ds-button--secondary ds-button--small" href="{{ url_for('cyberpunk_warehouse_admin.product_edit', product_id=product.id) }}">Edit</a>
+                    <form method="post" action="{{ url_for('cyberpunk_warehouse_admin.product_status', product_id=product.id) }}"><input type="hidden" name="csrf_token" value="{{ cw_csrf_token() }}"><input type="hidden" name="is_active" value="{{ 0 if product.is_active else 1 }}"><button class="ds-button ds-button--ghost ds-button--small" type="submit">{{ 'Archive' if product.is_active else 'Restore' }}</button></form>
+                    <form method="post" action="{{ url_for('cyberpunk_warehouse_admin.product_delete', product_id=product.id) }}" data-confirm="Delete this product permanently? Products used by levels or orders cannot be deleted."><input type="hidden" name="csrf_token" value="{{ cw_csrf_token() }}"><button class="ds-button ds-button--danger ds-button--small" type="submit">Delete</button></form>
+                </div>
+            </div>
+        </article>
+    {% endfor %}</div>{% else %}<div class="cw-empty"><h3>No products found</h3><p>Try changing the filters or create your first product.</p><a class="ds-button ds-button--primary" href="{{ url_for('cyberpunk_warehouse_admin.product_new') }}">Add product</a></div>{% endif %}
+    {% include "cyberpunk_warehouse_admin/_pagination.html" %}
+</section>
+{% endblock %}

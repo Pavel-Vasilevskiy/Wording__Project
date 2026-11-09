@@ -42,8 +42,12 @@ class ClassicMode(ModeProvider):
         objective = configuration.get("objective")
         if not isinstance(objective, str) or not objective.strip():
             errors.append("Classic mode requires a non-empty objective.")
-        if time_limit_seconds is not None:
-            errors.append("Classic mode does not use a level countdown timer.")
+        if time_limit_seconds is not None and not _positive_integer(time_limit_seconds):
+            errors.append("Classic mode timer must be a positive number of seconds when supplied.")
+        if "lives" in configuration and not _positive_integer(configuration["lives"]):
+            errors.append("Classic lives must be a positive integer when supplied.")
+        if "scoring_rules" in configuration and not isinstance(configuration["scoring_rules"], dict):
+            errors.append("Classic scoring_rules must be an object.")
         return errors
 
 
@@ -119,7 +123,7 @@ def get_mode_provider(key):
 for _provider in (
     ClassicMode(
         "classic", "Classic", "Standard objective-based level progression.",
-        {"type": "object", "required": ["objective"], "properties": {"objective": {"type": "string"}}},
+        {"type": "object", "required": ["objective"], "properties": {"objective": {"type": "string"}, "lives": {"type": "integer", "minimum": 1}, "scoring_rules": {"type": "object"}}, "level_fields": {"time_limit_seconds": {"type": ["integer", "null"], "minimum": 1}}},
         {"objective": "complete_order"},
     ),
     TimedMode(

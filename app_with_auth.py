@@ -38,12 +38,14 @@ from connections.models import ConnectionsPuzzle, ConnectionsCategory, Connectio
 from connections.routes import register_connections_admin
 from cyberpunk_warehouse import register_blueprints as register_cyberpunk_warehouse_blueprints
 from cyberpunk_warehouse import seed_builtin_game_modes as seed_cyberpunk_game_modes
+from cyberpunk_warehouse.schema import upgrade_cyberpunk_warehouse_schema
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'wordle_secret_key_2024_with_database')
+app.config['FLASK_ENV'] = os.getenv('FLASK_ENV', 'development')
 app.config['PORTAL_NAME'] = os.getenv('PORTAL_NAME', 'Ігрова кімната')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///wordle_users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -52,7 +54,15 @@ app.config['AVATAR_UPLOAD_DIR'] = os.getenv(
     'AVATAR_UPLOAD_DIR', os.path.join(app.instance_path, 'avatars')
 )
 app.config['AVATAR_MAX_BYTES'] = 5 * 1024 * 1024
-app.config['MAX_CONTENT_LENGTH'] = app.config['AVATAR_MAX_BYTES'] + 128 * 1024
+app.config['CYBERPUNK_ASSET_MAX_BYTES'] = int(os.getenv('CYBERPUNK_ASSET_MAX_BYTES', str(5 * 1024 * 1024)))
+if app.config['CYBERPUNK_ASSET_MAX_BYTES'] < 1:
+    raise RuntimeError('CYBERPUNK_ASSET_MAX_BYTES must be a positive integer.')
+app.config['MAX_CONTENT_LENGTH'] = max(
+    app.config['AVATAR_MAX_BYTES'], app.config['CYBERPUNK_ASSET_MAX_BYTES']
+) + 128 * 1024
+app.config['CYBERPUNK_ASSET_DIR'] = os.getenv(
+    'CYBERPUNK_ASSET_DIR', os.path.join(app.instance_path, 'cyberpunk_warehouse', 'assets')
+)
 
 # Initialize extensions
 db.init_app(app)
@@ -226,6 +236,10 @@ def handle_request_too_large(error):
     if request.endpoint == 'upload_avatar':
         flash('File is too large. Maximum size is 5 MB.', 'error')
         return redirect(url_for('profile'))
+    if request.path.startswith('/admin/cyberpunk-warehouse/assets'):
+        max_mb = app.config['CYBERPUNK_ASSET_MAX_BYTES'] / (1024 * 1024)
+        flash(f'Image is too large. Maximum size is {max_mb:g} MB.', 'error')
+        return redirect(url_for('cyberpunk_warehouse_admin.assets'))
     return error
 
 # Configure Google OAuth
@@ -647,6 +661,7 @@ def initialize_database():
     with app.app_context():
         db.create_all()
         upgrade_pvp_schema()
+        upgrade_cyberpunk_warehouse_schema(db.engine)
         seed_cyberpunk_game_modes()
 
 

@@ -200,7 +200,7 @@ class LeaderboardPersistenceTests(unittest.TestCase):
 
         self.assertEqual(
             set(inspect(db.engine).get_table_names()),
-            {"user", "game_session", "pvp_lobby", "pvp_lobby_member", "pvp_lobby_kick_notice", "pvp_match", "pvp_match_round", "pvp_match_player", "pvp_match_attempt", "pvp_match_result", "pvp_player_stats", "connections_puzzle", "connections_category", "connections_word", "cyberpunk_warehouse_asset", "cyberpunk_warehouse_product", "cyberpunk_warehouse_customer", "cyberpunk_warehouse_game_mode", "cyberpunk_warehouse_level", "cyberpunk_warehouse_order", "cyberpunk_warehouse_order_item", "cyberpunk_level_products"},
+            {"user", "game_session", "pvp_lobby", "pvp_lobby_member", "pvp_lobby_kick_notice", "pvp_match", "pvp_match_round", "pvp_match_player", "pvp_match_attempt", "pvp_match_result", "pvp_player_stats", "connections_puzzle", "connections_category", "connections_word", "cyberpunk_warehouse_asset", "cyberpunk_warehouse_product", "cyberpunk_warehouse_category", "cyberpunk_warehouse_customer", "cyberpunk_warehouse_customer_artwork", "cyberpunk_warehouse_game_mode", "cyberpunk_warehouse_level", "cyberpunk_warehouse_order", "cyberpunk_warehouse_order_item", "cyberpunk_level_products"},
         )
 
     def test_fly_config_uses_the_persistent_volume_path_in_fra(self):

@@ -2,25 +2,26 @@
 {% block title %}Cyberpunk Warehouse · Admin{% endblock %}
 {% block content %}
 <section class="cw-admin-panel">
-    <div class="cw-panel-heading"><div><h2>Foundation overview</h2><p class="cw-muted">Read-only catalog structure is available. Editors and gameplay workflows are not implemented yet.</p></div><span class="cw-state cw-state--foundation">Foundation</span></div>
+    <div class="cw-panel-heading"><div><h2>Content management</h2><p class="cw-muted">Products, categories, customers and artwork can be managed here. Gameplay workflows remain separate and are not enabled.</p></div><span class="cw-state cw-state--foundation">Admin</span></div>
     <div class="cw-admin-stats">
         <article><span>Levels</span><strong>{{ totals.levels }}</strong></article>
         <article><span>Game modes</span><strong>{{ totals.modes }}</strong></article>
         <article><span>Products</span><strong>{{ totals.products }}</strong></article>
+        <article><span>Categories</span><strong>{{ totals.categories }}</strong></article>
         <article><span>Customers</span><strong>{{ totals.customers }}</strong></article>
         <article><span>Orders</span><strong>{{ totals.orders }}</strong></article>
         <article><span>Assets</span><strong>{{ totals.assets }}</strong></article>
     </div>
 </section>
 <section class="cw-admin-section" aria-labelledby="areas-heading">
-    <div class="cw-panel-heading"><div><h2 id="areas-heading">Management areas</h2><p class="cw-muted">Planned areas are labeled and currently have no editing operations.</p></div></div>
+    <div class="cw-panel-heading"><div><h2 id="areas-heading">Management areas</h2><p class="cw-muted">Available catalogs are ready to use; planned sections are clearly labeled.</p></div></div>
     <div class="cw-admin-cards">
     {% for section in sections %}
         <a class="cw-admin-card{% if not section.available %} cw-admin-card--planned{% endif %}" href="{{ section.url }}">
             <span class="cw-state{% if section.available %} cw-state--foundation{% else %} cw-state--planned{% endif %}">{{ section.state }}</span>
             <h3>{{ section.title }}</h3>
-            <p>{% if section.available %}View the current data foundation.{% else %}Not implemented in this iteration.{% endif %}</p>
-            <span class="cw-card-action">{% if section.available %}Open overview →{% else %}View roadmap note →{% endif %}</span>
+            <p>{% if not section.available %}Not implemented in this iteration.{% elif section.key in ['products','categories','customers','assets'] %}Manage this catalog in the admin panel.{% else %}Read-only architecture overview.{% endif %}</p>
+            <span class="cw-card-action">{% if section.available and section.key in ['products','categories','customers','assets'] %}Manage →{% elif section.available %}Open overview →{% else %}View roadmap note →{% endif %}</span>
         </a>
     {% endfor %}
     </div>
