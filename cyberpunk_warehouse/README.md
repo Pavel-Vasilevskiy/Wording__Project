@@ -23,7 +23,7 @@ The models are registered before Flask `db.create_all()` runs. Existing SQLite d
 - `CyberpunkAsset`: relative filename, asset type, alt text, normalized media type, dimensions, output file size, and active state. Products, categories, customers, and levels keep foreign-key references to reusable records.
 - `CyberpunkGameMode`: unique mode key, display information, JSON configuration schema/defaults, and active/built-in flags.
 - `CyberpunkLevel`: numbered level, mode FK, difficulty/status, mode configuration, order configuration, optional level timer, customer, background/shelf assets, products, and orders.
-- `CyberpunkOrder` and `CyberpunkOrderItem`: per-level order sequence and requested product quantities. Quantities are validated in Python and by a database check constraint to be positive multiples of three.
+- `CyberpunkOrder` and `CyberpunkOrderItem`: per-level order sequence and requested product quantities. Requested quantities are positive whole numbers; the legacy constrained column is retained as a compatibility shadow while the additive `requested_quantity` column stores current values.
 - `cyberpunk_level_products`: many-to-many level/product association.
 
 Mode configuration is JSON data stored in the database, not gameplay constants in JavaScript. Mode-specific options live in `CyberpunkLevel.mode_configuration`; `time_limit_seconds` is a level column because it is a commonly queried timed-mode value. Order pacing/configuration is kept separately in `order_configuration`.
@@ -47,9 +47,12 @@ Open `/admin/cyberpunk-warehouse` as a portal administrator. Products, Categorie
 
 ### Level Editor
 
-- Level fields and settings are stored in JSON columns for `warehouse_layout`, `gameplay_configuration`, the active `mode_configuration`, and saved per-mode configurations in `mode_configurations`; `configuration_version` starts at 1. Product placement and order lines remain relational references. Switching a level's mode preserves its other mode configuration.
-- Layout format: `{version, rows, columns, shelves:[{id,name,cells:[{row,column,product_id,quantity}]}]}`. Empty cells have `product_id: null` and quantity 0. The editor currently supports 1–8 shelves and 1–12 cells per shelf. Catalog items can be dragged to cells to copy; a cell's Move handle transfers its product and stock to another cell. Dropdowns remain available as an alternative.
-- Each occupied cell quantity and order item quantity must be a positive multiple of three. Requested stock cannot exceed placed stock.
+- Level fields and settings are stored in JSON columns for `warehouse_layout`, `gameplay_configuration`, the active `mode_configuration`, and saved per-mode configurations in `mode_configurations`; `configuration_version` is set to 2 for levels saved by the current editor. Product placement and order lines remain relational references. Switching a level's mode preserves its other mode configuration.
+- Layout v2 format: `{version:2, rows, columns, shelves:[{id,name,cells:[{row,column,slots:[product_id|null,product_id|null,product_id|null]}]}]}`. Every cell contains exactly three independent slots. New levels default to a 10×10 grid; dimensions are configurable up to 20×20. Empty slots are allowed in drafts. Three equal non-empty slots receive a visual highlight only; no game action is executed.
+- Catalog products can be dragged onto slots to copy them. Slot drag handles move a product; cell Copy/Paste duplicates all three assignments; slots and whole cells can be cleared. Dropdown selection is also available.
+- Requested order quantities may be any positive whole number. Publication and order saving compare requested stock against the count of matching warehouse slots. This is a structural stock check and does not simulate whether a player can access/combine those items.
+- Legacy v1 layouts are converted in memory when opened. Each legacy group of three stock units is displayed as a triple in one cell, with extra triples assigned to empty cells. The database is updated only when the level is saved. If conversion would exceed the editor grid or lose a non-triple legacy quantity, save is blocked and the original record remains intact.
+- SQLite retains the old constrained `quantity` column as a technical shadow for compatibility and stores the actual order amount in the additive `requested_quantity` column. Existing amounts are copied once by the schema upgrader; later application starts do not overwrite them.
 - Orders are editable as one customer order per level in this iteration. The `CyberpunkOrder` relationship remains capable of multiple orders for future multi-customer levels.
 - Publishing checks structure, active references, customer default artwork, mode configuration, and order-vs-stock counts. It does **not** simulate shelf accessibility, tray occupancy, or the full Triple Match flow; no full solvability claim is made.
 - Preview is an administrator-only view of the saved level and does not create gameplay or update player statistics. “Save & Preview” saves before showing it.
@@ -69,6 +72,6 @@ An administrator account is provisioned through the existing `User.is_admin` mec
 
 ## Current status and next steps
 
-Implemented: independent models, mode registry and validators, order multiple-of-three enforcement, safe table initialization, functional product/category/customer/asset administration, reusable persistent artwork storage, and an admin Level Editor with CRUD, structured warehouse layouts, order configuration, validation, preview, duplication and status management.
+Implemented: independent models, mode registry and validators, safe table initialization, functional product/category/customer/asset administration, reusable persistent artwork storage, and an admin Level Editor with CRUD, three-slot structured warehouse layouts, arbitrary positive order quantities, validation, preview, duplication and status management.
 
 Next: implement a gameplay-side solvability simulator and multi-order/customer editing, then add player-facing level selection and gameplay/progression/scoring. PvP synchronization and customer timers are later work.

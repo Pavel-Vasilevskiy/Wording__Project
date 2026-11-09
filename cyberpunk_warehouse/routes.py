@@ -29,7 +29,10 @@ from cyberpunk_warehouse.services.assets import (
     save_asset_bytes,
     validate_storage_reference,
 )
-from cyberpunk_warehouse.services.levels import level_publish_errors
+from cyberpunk_warehouse.services.levels import (
+    LAYOUT_VERSION, MAX_LAYOUT_CELLS, MAX_LAYOUT_DIMENSION,
+    level_publish_errors, normalize_warehouse_layout,
+)
 from models import db
 
 
@@ -772,19 +775,48 @@ LEVEL_DIFFICULTIES = {"easy", "normal", "hard", "expert"}
 
 def _level_editor_context(level=None, errors=None, form_values=None):
     products = CyberpunkProduct.query.filter_by(is_active=True).order_by(CyberpunkProduct.sort_order, CyberpunkProduct.name).all()
+    product_data = [{
+        "id": product.id, "name": product.name,
+        "image_url": url_for("cyberpunk_warehouse_admin.serve_asset", asset_id=product.image_asset.id,
+                              v=product.image_asset.storage_path) if product.image_asset else "",
+        "category_id": product.category_id, "rarity": product.rarity,
+    } for product in products]
     categories = CyberpunkCategory.query.filter_by(is_active=True).order_by(CyberpunkCategory.sort_order, CyberpunkCategory.name).all()
     customers = CyberpunkCustomer.query.filter_by(is_active=True).order_by(CyberpunkCustomer.sort_order, CyberpunkCustomer.name).all()
     modes = CyberpunkGameMode.query.filter_by(is_active=True).order_by(CyberpunkGameMode.id).all()
     assets = CyberpunkAsset.query.filter_by(is_active=True).order_by(CyberpunkAsset.id.desc()).limit(200).all()
-    return render_template("cyberpunk_warehouse_admin/level_editor.html", level=level, errors=errors or [],
+    errors = list(errors or [])
+    layout_locked = False
+    layout = {"version": LAYOUT_VERSION, "rows": 10, "columns": 10, "shelves": []}
+    try:
+        if request.method == "POST" and request.form.get("layout_rows", "").isdigit() and request.form.get("layout_columns", "").isdigit():
+            rows = min(MAX_LAYOUT_DIMENSION, int(request.form["layout_rows"]))
+            columns = min(MAX_LAYOUT_DIMENSION, int(request.form["layout_columns"]))
+            shelves = []
+            for row in range(rows):
+                cells = []
+                for column in range(columns):
+                    slots = [request.form.get(f"cell_{row}_{column}_slot_{slot}", "").strip() or None for slot in range(3)]
+                    cells.append({"row": row, "column": column, "slots": [int(value) if value and value.isdigit() else None for value in slots]})
+                shelves.append({"id": f"shelf-{row + 1}", "name": f"Shelf {row + 1}", "cells": cells})
+            layout = {"version": LAYOUT_VERSION, "rows": rows, "columns": columns, "shelves": shelves}
+        elif level and level.warehouse_layout:
+            layout = normalize_warehouse_layout(level.warehouse_layout)
+    except ValueError as exc:
+        errors.append(str(exc))
+        layout_locked = True
+    return render_template("cyberpunk_warehouse_admin/level_editor.html", level=level, errors=errors,
                            form_values=form_values or {}, products=products, categories=categories, customers=customers,
-                           modes=modes, assets=assets)
+                           modes=modes, assets=assets, layout_data=layout, product_data=product_data,
+                           layout_locked=layout_locked)
 
 
 def _level_from_form(existing=None, *, allow_key_owner_id=None):
     from cyberpunk_warehouse.models import CyberpunkOrderItem
 
     level = existing or CyberpunkLevel()
+    if request.form.get("layout_conversion_locked") == "1":
+        raise ValueError("This legacy layout cannot be represented without losing stock. The saved level was left unchanged.")
     previous_mode_key = existing.game_mode.key if existing is not None and existing.game_mode else None
     previous_mode_configuration = dict(existing.mode_configuration or {}) if existing is not None else {}
     level.name = _text("name", "Level name", 120, required=True)
@@ -854,31 +886,29 @@ def _level_from_form(existing=None, *, allow_key_owner_id=None):
 
     rows = _integer("layout_rows", "Shelf count", minimum=1)
     columns = _integer("layout_columns", "Cells per shelf", minimum=1)
-    if rows > 8 or columns > 12 or rows * columns > 96:
-        raise ValueError("Layout supports at most 8 shelves, 12 cells per shelf and 96 cells total.")
+    if rows > MAX_LAYOUT_DIMENSION or columns > MAX_LAYOUT_DIMENSION or rows * columns > MAX_LAYOUT_CELLS:
+        raise ValueError("Layout supports dimensions up to 20 × 20 (400 cells).")
     shelves, selected_products, stock = [], {}, {}
     for row in range(rows):
         cells = []
         for column in range(columns):
-            product_value = request.form.get(f"cell_product_{row}_{column}", "").strip()
-            quantity_value = request.form.get(f"cell_quantity_{row}_{column}", "").strip()
-            if not product_value:
-                if quantity_value and quantity_value != "0":
-                    raise ValueError(f"Empty cell {row + 1}:{column + 1} cannot have a quantity.")
-                cells.append({"row": row, "column": column, "product_id": None, "quantity": 0})
-                continue
-            product_id = int(product_value) if product_value.isdigit() else 0
-            product = db.session.get(CyberpunkProduct, product_id)
-            if product is None or not product.is_active:
-                raise ValueError("Warehouse cells must reference active products.")
-            quantity = int(quantity_value) if quantity_value.isdigit() else 0
-            if quantity <= 0 or quantity % 3:
-                raise ValueError("Each occupied cell must contain a positive quantity divisible by three.")
-            cells.append({"row": row, "column": column, "product_id": product.id, "quantity": quantity})
-            selected_products[product.id] = product
-            stock[product.id] = stock.get(product.id, 0) + quantity
+            slots = []
+            for slot in range(3):
+                value = request.form.get(f"cell_{row}_{column}_slot_{slot}", "").strip()
+                if not value:
+                    slots.append(None)
+                    continue
+                product_id = int(value) if value.isdigit() else 0
+                product = db.session.get(CyberpunkProduct, product_id)
+                if product is None or not product.is_active:
+                    raise ValueError("Warehouse slots must reference active products.")
+                slots.append(product.id)
+                selected_products[product.id] = product
+                stock[product.id] = stock.get(product.id, 0) + 1
+            cells.append({"row": row, "column": column, "slots": slots})
         shelves.append({"id": f"shelf-{row + 1}", "name": f"Shelf {row + 1}", "cells": cells})
-    level.warehouse_layout = {"version": 1, "rows": rows, "columns": columns, "shelves": shelves}
+    level.warehouse_layout = {"version": LAYOUT_VERSION, "rows": rows, "columns": columns, "shelves": shelves}
+    level.configuration_version = 2
     level.products = list(selected_products.values())
 
     item_count = _integer("order_items_count", "Order item count", minimum=0, default=0)
@@ -892,14 +922,16 @@ def _level_from_form(existing=None, *, allow_key_owner_id=None):
         if not product_value or not quantity_value or not product_value.isdigit() or not quantity_value.isdigit():
             raise ValueError("Complete both product and quantity for each order row.")
         product_id, quantity = int(product_value), int(quantity_value)
-        if quantity <= 0 or quantity % 3:
-            raise ValueError("Order quantities must be positive multiples of three.")
+        if quantity <= 0:
+            raise ValueError("Order quantities must be positive whole numbers.")
         if product_id in seen:
             raise ValueError("Each order can list a product only once.")
         product = db.session.get(CyberpunkProduct, product_id)
         if product is None or not product.is_active:
             raise ValueError("Orders must reference active products.")
         seen.add(product_id)
+        if quantity > stock.get(product_id, 0):
+            raise ValueError(f"Requested quantity exceeds warehouse stock for {product.name}.")
         order_lines.append((product, quantity))
 
     # Current editor manages the first order; any future multi-customer model can build on this relation.

@@ -18,7 +18,7 @@ from cyberpunk_warehouse.models import (
     CyberpunkOrderItem,
     CyberpunkProduct,
 )
-from cyberpunk_warehouse.services.levels import level_publish_errors, validate_level_for_publish
+from cyberpunk_warehouse.services.levels import level_publish_errors, normalize_warehouse_layout, validate_level_for_publish
 from cyberpunk_warehouse.services.modes import seed_builtin_game_modes, validate_mode_configuration
 from cyberpunk_warehouse.services.assets import AssetError, asset_storage_directory, process_uploaded_image, validate_storage_reference
 from models import User, db
@@ -161,16 +161,22 @@ class CyberpunkWarehouseTests(unittest.TestCase):
         self.login(self.admin)
         token = self._csrf("/admin/cyberpunk-warehouse/levels/new")
         mode = CyberpunkGameMode.query.filter_by(key="classic").one()
+        product_a = CyberpunkProduct(name="Draft Milk", internal_key="draft-milk")
+        product_b = CyberpunkProduct(name="Draft Bread", internal_key="draft-bread")
+        db.session.add_all([product_a, product_b])
+        db.session.flush()
         response = self.client.post("/admin/cyberpunk-warehouse/levels/new", data={
             "csrf_token": token, "action": "save", "name": "Draft Harbor", "internal_key": "draft-harbor",
             "level_number": "20", "sort_order": "5", "difficulty": "normal", "game_mode_id": str(mode.id),
             "layout_rows": "1", "layout_columns": "1", "order_items_count": "2",
             "sorting_tray_capacity": "7", "initial_lives": "3", "base_points": "0",
+            f"cell_0_0_slot_0": str(product_a.id), f"cell_0_0_slot_1": str(product_b.id),
         })
         self.assertEqual(response.status_code, 302)
         level = CyberpunkLevel.query.filter_by(internal_key="draft-harbor").one()
         self.assertEqual(level.status, "draft")
-        self.assertEqual(level.warehouse_layout["shelves"][0]["cells"][0]["product_id"], None)
+        self.assertEqual(level.warehouse_layout["version"], 2)
+        self.assertEqual(level.warehouse_layout["shelves"][0]["cells"][0]["slots"], [product_a.id, product_b.id, None])
         edit = self.client.get(f"/admin/cyberpunk-warehouse/levels/{level.id}/edit")
         self.assertEqual(edit.status_code, 200)
         self.assertIn(b"Warehouse layout", edit.data)
@@ -199,12 +205,47 @@ class CyberpunkWarehouseTests(unittest.TestCase):
         self.assertEqual(duplicate.warehouse_layout, level.warehouse_layout)
         self.assertEqual(duplicate.orders[0].items[0].quantity, 3)
 
-    def test_order_quantities_must_be_positive_multiples_of_three(self):
+    def test_order_quantities_allow_any_positive_whole_number(self):
+        for quantity in (1, 2, 3, 8):
+            item = CyberpunkOrderItem(order_id=1, product_id=1, quantity=quantity)
+            self.assertEqual(item.quantity, quantity)
         item = CyberpunkOrderItem(order_id=1, product_id=1, quantity=3)
-        self.assertEqual(item.quantity, 3)
-        for invalid in (0, -3, 1, 4, True):
+        for invalid in (0, -3, True, 1.5):
             with self.subTest(quantity=invalid), self.assertRaises(ValueError):
                 item.quantity = invalid
+
+    def test_v2_cells_support_triplets_mixed_slots_and_stock_validation(self):
+        level, first, _customer = self.create_level_content()
+        second = CyberpunkProduct(name="Boxed Milk", internal_key="boxed-milk")
+        third = CyberpunkProduct(name="Neon Cola", internal_key="neon-cola")
+        db.session.add_all([second, third])
+        db.session.flush()
+        cases = ([first.id, first.id, first.id], [first.id, second.id, third.id], [first.id, first.id, second.id])
+        for slots in cases:
+            with self.subTest(slots=slots):
+                level.warehouse_layout = {"version": 2, "rows": 1, "columns": 1, "shelves": [
+                    {"id": "shelf-1", "name": "Shelf 1", "cells": [{"row": 0, "column": 0, "slots": list(slots)}]}
+                ]}
+                level.products = list({p.id: p for p in (first, second, third) if p.id in slots}.values())
+                order = level.orders[0]
+                order.items.clear()
+                # Flush delete-orphan rows before reusing the unique
+                # (order_id, product_id) keys in the next test case.
+                db.session.flush()
+                products_by_id = {product.id: product for product in (first, second, third)}
+                for product_id in set(slots):
+                    db.session.add(CyberpunkOrderItem(order=order, product=products_by_id[product_id], quantity=slots.count(product_id)))
+                db.session.flush()
+                self.assertEqual(level_publish_errors(level), [])
+
+    def test_legacy_layout_conversion_preserves_stock_as_individual_cells(self):
+        converted = normalize_warehouse_layout({"version": 1, "rows": 1, "columns": 1, "shelves": [
+            {"id": "old", "name": "Shelf", "cells": [{"row": 0, "column": 0, "product_id": 41, "quantity": 6}]}
+        ]})
+        filled = [slot for shelf in converted["shelves"] for cell in shelf["cells"] for slot in cell["slots"] if slot]
+        self.assertEqual(converted["version"], 2)
+        self.assertEqual(filled, [41] * 6)
+        self.assertEqual(sum(1 for shelf in converted["shelves"] for cell in shelf["cells"] if cell["slots"] == [41,41,41]), 2)
 
     def test_level_structure_checks_reject_duplicate_cells_and_insufficient_order_stock(self):
         level, _product, _customer = self.create_level_content()
@@ -494,12 +535,15 @@ class CyberpunkWarehouseTests(unittest.TestCase):
             connection.exec_driver_sql("CREATE TABLE cyberpunk_warehouse_customer (id INTEGER PRIMARY KEY, name VARCHAR(120) NOT NULL, customer_type VARCHAR(40) NOT NULL, character_artwork_id INTEGER, happy_artwork_id INTEGER, impatient_artwork_id INTEGER, disappointed_artwork_id INTEGER, default_waiting_seconds INTEGER NOT NULL, is_active BOOLEAN NOT NULL, created_at DATETIME, updated_at DATETIME)")
             connection.exec_driver_sql("INSERT INTO cyberpunk_warehouse_customer (id,name,customer_type,default_waiting_seconds,is_active) VALUES (7,'Legacy A','standard',60,1),(8,'Legacy B','robot',30,1)")
             connection.exec_driver_sql("INSERT INTO cyberpunk_warehouse_product (id,name,internal_key,category,rarity,spawn_weight,is_active) VALUES (4,'Old product','old-product','legacy','common',1,1)")
+            connection.exec_driver_sql("CREATE TABLE cyberpunk_warehouse_order_item (id INTEGER PRIMARY KEY, quantity INTEGER NOT NULL CHECK(quantity > 0 AND quantity % 3 = 0))")
+            connection.exec_driver_sql("INSERT INTO cyberpunk_warehouse_order_item (id,quantity) VALUES (1,6)")
         upgrade_cyberpunk_warehouse_schema(engine)
         with engine.connect() as connection:
             self.assertEqual(connection.exec_driver_sql("SELECT internal_key FROM cyberpunk_warehouse_customer ORDER BY id").scalars().all(), ["legacy-customer-7", "legacy-customer-8"])
             self.assertEqual(connection.exec_driver_sql("SELECT description, sort_order FROM cyberpunk_warehouse_product WHERE id=4").one(), ("", 0))
             self.assertIn("category_id", {column["name"] for column in inspect(connection).get_columns("cyberpunk_warehouse_product")})
             self.assertEqual(connection.exec_driver_sql("SELECT name FROM cyberpunk_warehouse_product WHERE id=4").scalar_one(), "Old product")
+            self.assertEqual(connection.exec_driver_sql("SELECT requested_quantity FROM cyberpunk_warehouse_order_item WHERE id=1").scalar_one(), 6)
         engine.dispose()
 
 

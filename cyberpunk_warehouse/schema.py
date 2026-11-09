@@ -28,6 +28,9 @@ _ADDITIVE_COLUMNS = {
         "sort_order": "INTEGER NOT NULL DEFAULT 0",
         "preview_asset_id": "INTEGER REFERENCES cyberpunk_warehouse_asset(id) ON DELETE SET NULL",
     },
+    "cyberpunk_warehouse_order_item": {
+        "requested_quantity": "INTEGER NOT NULL DEFAULT 3",
+    },
 }
 
 
@@ -35,6 +38,7 @@ def upgrade_cyberpunk_warehouse_schema(engine):
     """Add nullable/defaulted columns in place; never rebuild existing tables."""
     with engine.begin() as connection:
         inspector = inspect(connection)
+        added_columns = set()
         for table_name, columns in _ADDITIVE_COLUMNS.items():
             if not inspector.has_table(table_name):
                 continue
@@ -45,6 +49,12 @@ def upgrade_cyberpunk_warehouse_schema(engine):
                         f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {definition}'
                     )
                     existing.add(column_name)
+                    added_columns.add((table_name, column_name))
+
+        if ("cyberpunk_warehouse_order_item", "requested_quantity") in added_columns:
+            connection.exec_driver_sql(
+                "UPDATE cyberpunk_warehouse_order_item SET requested_quantity = quantity"
+            )
 
         if inspect(connection).has_table("cyberpunk_warehouse_customer"):
             connection.exec_driver_sql(

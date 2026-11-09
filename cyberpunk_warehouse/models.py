@@ -214,13 +214,25 @@ class CyberpunkOrderItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey("cyberpunk_warehouse_order.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id = db.Column(db.Integer, db.ForeignKey("cyberpunk_warehouse_product.id"), nullable=False)
-    quantity = db.Column(db.Integer, nullable=False)
+    # `quantity` is retained as a constrained legacy shadow for existing SQLite
+    # installations; actual requested amounts live in requested_quantity.
+    legacy_quantity = db.Column("quantity", db.Integer, nullable=False, default=3, server_default="3")
+    requested_quantity = db.Column(db.Integer, nullable=False, default=3, server_default="3")
 
     order = db.relationship("CyberpunkOrder", back_populates="items")
     product = db.relationship("CyberpunkProduct", back_populates="order_items")
 
-    @validates("quantity")
+    @property
+    def quantity(self):
+        """Public quantity API: requested stock, no longer constrained to triples."""
+        return self.requested_quantity
+
+    @quantity.setter
+    def quantity(self, value):
+        self.requested_quantity = value
+
+    @validates("requested_quantity")
     def validate_quantity(self, key, value):
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value % 3:
-            raise ValueError("Order quantities must be positive multiples of three.")
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("Order quantities must be positive whole numbers.")
         return value
