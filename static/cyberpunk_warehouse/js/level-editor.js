@@ -181,6 +181,26 @@
   rowsInput.addEventListener('change', () => { readGrid(); renderGrid(); });
   columnsInput.addEventListener('change', () => { readGrid(); renderGrid(); });
   renderGrid();
+  const randomizeButton = document.getElementById('randomize-warehouse');
+  if (randomizeButton) randomizeButton.addEventListener('click', () => {
+    if (!products.length) { if (copyStatus) copyStatus.textContent = 'Add an active product before randomizing.'; return; }
+    if (!window.confirm('Replace every warehouse slot with random active products? This change will not be saved until you save the level.')) return;
+    const totalWeight = products.reduce((sum, product) => sum + Math.max(1, Number(product.spawn_weight) || 1), 0);
+    const pickProduct = () => {
+      let pick = Math.random() * totalWeight;
+      for (const product of products) {
+        pick -= Math.max(1, Number(product.spawn_weight) || 1);
+        if (pick < 0) return product;
+      }
+      return products[products.length - 1];
+    };
+    grid.querySelectorAll('.cw-layout-cell').forEach((card) => {
+      card.querySelectorAll('.cw-slot-select').forEach((select) => { select.value = String(pickProduct().id); });
+      refreshCell(card);
+    });
+    readGrid();
+    if (copyStatus) copyStatus.textContent = `Filled ${readDimensions().rows * readDimensions().columns} cells using ${products.length} active products. Save the level to keep this layout.`;
+  });
   document.getElementById('clear-layout').addEventListener('click', () => {
     cellValues.clear(); grid.querySelectorAll('.cw-slot-select').forEach((select) => { select.value = ''; });
     grid.querySelectorAll('.cw-layout-cell').forEach(refreshCell);

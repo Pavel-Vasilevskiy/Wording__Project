@@ -236,3 +236,41 @@ class CyberpunkOrderItem(db.Model):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError("Order quantities must be positive whole numbers.")
         return value
+
+
+class CyberpunkGameSession(db.Model):
+    """A player's isolated, server-authoritative snapshot of a level run."""
+    __tablename__ = "cyberpunk_warehouse_game_session"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'paused', 'completed', 'game_over', 'abandoned')", name="ck_cyberpunk_session_status"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    level_id = db.Column(db.Integer, db.ForeignKey("cyberpunk_warehouse_level.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default="active", server_default="active", index=True)
+    revision = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    state = db.Column(MutableDict.as_mutable(JSON), nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    user = db.relationship("User")
+    level = db.relationship("CyberpunkLevel")
+    actions = db.relationship("CyberpunkGameAction", back_populates="game_session", cascade="all, delete-orphan")
+
+
+class CyberpunkGameAction(db.Model):
+    """Idempotency ledger; action response snapshots make retries safe."""
+    __tablename__ = "cyberpunk_warehouse_game_action"
+    __table_args__ = (
+        UniqueConstraint("game_session_id", "action_id", name="uq_cyberpunk_game_action_id"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    game_session_id = db.Column(db.Integer, db.ForeignKey("cyberpunk_warehouse_game_session.id", ondelete="CASCADE"), nullable=False, index=True)
+    action_id = db.Column(db.String(64), nullable=False)
+    result = db.Column(MutableDict.as_mutable(JSON), nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    game_session = db.relationship("CyberpunkGameSession", back_populates="actions")

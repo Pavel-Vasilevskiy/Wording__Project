@@ -164,7 +164,6 @@ def level_publish_errors(level):
                 continue
             for product_id in slots:
                 if product_id is None:
-                    errors.append("Published levels cannot contain empty product slots.")
                     continue
                 if isinstance(product_id, bool) or not isinstance(product_id, int):
                     errors.append("Warehouse layout contains an invalid product reference.")
@@ -201,6 +200,11 @@ def level_publish_errors(level):
     for product_id, quantity in requested.items():
         if quantity > stock[product_id]:
             errors.append(f"Requested quantity exceeds warehouse stock for product #{product_id}.")
+        minimum_harvest = math.ceil(quantity / 3) * 3
+        if minimum_harvest > stock[product_id]:
+            errors.append(
+                f"Warehouse stock for product #{product_id} cannot form enough triples to fulfill the requested quantity."
+            )
     return list(dict.fromkeys(errors))
 
 

@@ -13,6 +13,8 @@ from cyberpunk_warehouse.models import (
     CyberpunkCustomer,
     CyberpunkCustomerArtwork,
     CyberpunkGameMode,
+    CyberpunkGameAction,
+    CyberpunkGameSession,
     CyberpunkLevel,
     CyberpunkOrder,
     CyberpunkOrderItem,
@@ -21,6 +23,7 @@ from cyberpunk_warehouse.models import (
 from cyberpunk_warehouse.services.levels import level_publish_errors, normalize_warehouse_layout, validate_level_for_publish
 from cyberpunk_warehouse.services.modes import seed_builtin_game_modes, validate_mode_configuration
 from cyberpunk_warehouse.services.assets import AssetError, asset_storage_directory, process_uploaded_image, validate_storage_reference
+from cyberpunk_warehouse.services.game_engine import ClassicGameEngine, GameActionError
 from models import User, db
 from cyberpunk_warehouse.schema import upgrade_cyberpunk_warehouse_schema
 from sqlalchemy import create_engine, inspect
@@ -117,6 +120,8 @@ class CyberpunkWarehouseTests(unittest.TestCase):
 
     def test_module_is_registered_and_builtin_modes_seed_idempotently(self):
         self.assertIn("cyberpunk_warehouse_admin", app.blueprints)
+        self.assertIn("cyberpunk_warehouse_game", app.blueprints)
+        self.assertIn("/cyberpunk-warehouse/", {rule.rule for rule in app.url_map.iter_rules()})
         self.assertIn("/admin/cyberpunk-warehouse/levels", {rule.rule for rule in app.url_map.iter_rules()})
         self.assertEqual({mode.key for mode in CyberpunkGameMode.query.all()}, {"classic", "timed", "unlimited", "pvp"})
         seed_builtin_game_modes()
@@ -180,6 +185,7 @@ class CyberpunkWarehouseTests(unittest.TestCase):
         edit = self.client.get(f"/admin/cyberpunk-warehouse/levels/{level.id}/edit")
         self.assertEqual(edit.status_code, 200)
         self.assertIn(b"Warehouse layout", edit.data)
+        self.assertIn(b"Randomize Warehouse", edit.data)
         self.assertEqual(self.client.get(f"/admin/cyberpunk-warehouse/levels/{level.id}/preview").status_code, 200)
         preview = self.client.post("/admin/cyberpunk-warehouse/levels/preview", data={
             "csrf_token": token, "name": "Unsaved preview", "internal_key": "unsaved-preview",
@@ -236,7 +242,11 @@ class CyberpunkWarehouseTests(unittest.TestCase):
                 for product_id in set(slots):
                     db.session.add(CyberpunkOrderItem(order=order, product=products_by_id[product_id], quantity=slots.count(product_id)))
                 db.session.flush()
-                self.assertEqual(level_publish_errors(level), [])
+                errors = level_publish_errors(level)
+                if slots[0] == slots[1] == slots[2]:
+                    self.assertEqual(errors, [])
+                else:
+                    self.assertTrue(any("form enough triples" in error for error in errors))
 
     def test_legacy_layout_conversion_preserves_stock_as_individual_cells(self):
         converted = normalize_warehouse_layout({"version": 1, "rows": 1, "columns": 1, "shelves": [
@@ -260,6 +270,134 @@ class CyberpunkWarehouseTests(unittest.TestCase):
         ]}
         level.orders[0].items[0].quantity = 6
         self.assertTrue(any("exceeds warehouse stock" in error for error in level_publish_errors(level)))
+
+    def test_published_v2_layout_may_have_empty_cells_and_slots(self):
+        level, product, _customer = self.create_level_content()
+        level.warehouse_layout = {"version": 2, "rows": 1, "columns": 3, "shelves": [
+            {"id": "shelf-1", "name": "Shelf 1", "cells": [
+                {"row": 0, "column": 0, "slots": [product.id, None, None]},
+                {"row": 0, "column": 1, "slots": [product.id, None, None]},
+                {"row": 0, "column": 2, "slots": [product.id, None, None]},
+            ]}
+        ]}
+        level.orders[0].items[0].quantity = 1
+        self.assertEqual(level_publish_errors(level), [])
+
+    def test_published_stock_must_be_gatherable_in_triples_for_order(self):
+        level, product, _customer = self.create_level_content()
+        level.orders[0].items[0].quantity = 2
+        level.warehouse_layout = {"version": 2, "rows": 1, "columns": 1, "shelves": [
+            {"id": "shelf-1", "name": "Shelf 1", "cells": [
+                {"row": 0, "column": 0, "slots": [product.id, product.id, None]}
+            ]}
+        ]}
+        self.assertTrue(any("form enough triples" in error for error in level_publish_errors(level)))
+        level.warehouse_layout["shelves"][0]["cells"][0]["slots"][2] = product.id
+        self.assertEqual(level_publish_errors(level), [])
+
+    def test_classic_engine_swaps_and_collects_only_local_triples(self):
+        engine = ClassicGameEngine()
+        product_id = 11
+        state = engine.initial_state({
+            "warehouse_layout": {"version": 2, "rows": 1, "columns": 2, "shelves": [
+                {"id": "shelf-1", "cells": [
+                    {"row": 0, "column": 0, "slots": [product_id, product_id, None]},
+                    {"row": 0, "column": 1, "slots": [product_id, None, None]},
+                ]}
+            ]},
+            "orders": [{"items": [{"product_id": product_id, "quantity": 2}]}],
+        })
+        state = engine.apply(state, {"type": "move", "source": {"row": 0, "column": 1, "slot": 0}, "target": {"row": 0, "column": 0, "slot": 2}})
+        self.assertEqual(state["inventory"], {str(product_id): 3})
+        self.assertEqual(state["warehouse"]["shelves"][0]["cells"][0]["slots"], [None, None, None])
+        self.assertEqual(state["warehouse"]["shelves"][0]["cells"][1]["slots"], [None, None, None])
+        with self.assertRaises(GameActionError):
+            engine.apply(state, {"type": "deliver", "product_id": product_id, "quantity": 4})
+
+        swapped = engine.initial_state({
+            "warehouse_layout": {"version": 2, "rows": 1, "columns": 1, "shelves": [
+                {"id": "shelf-1", "cells": [{"row": 0, "column": 0, "slots": [product_id, product_id, 99]}]}
+            ]},
+            "orders": [{"items": [{"product_id": product_id, "quantity": 1}]}],
+        })
+        swapped = engine.apply(swapped, {"type": "move", "source": {"row": 0, "column": 0, "slot": 2}, "target": {"row": 0, "column": 0, "slot": 0}})
+        self.assertEqual(swapped["warehouse"]["shelves"][0]["cells"][0]["slots"], [99, product_id, product_id])
+        self.assertEqual(swapped["inventory"], {})
+
+    def test_classic_engine_does_not_collect_across_cells_and_validates_coordinates(self):
+        engine = ClassicGameEngine()
+        product_id = 12
+        state = engine.initial_state({
+            "warehouse_layout": {"version": 2, "rows": 1, "columns": 2, "shelves": [
+                {"id": "shelf-1", "cells": [
+                    {"row": 0, "column": 0, "slots": [product_id, product_id, None]},
+                    {"row": 0, "column": 1, "slots": [product_id, None, None]},
+                ]}
+            ]},
+            "orders": [{"items": [{"product_id": product_id, "quantity": 1}]}],
+        })
+        state = engine.apply(state, {"type": "move", "source": {"row": 0, "column": 0, "slot": 0}, "target": {"row": 0, "column": 0, "slot": 2}})
+        self.assertEqual(state["inventory"], {})
+        self.assertEqual(state["warehouse"]["shelves"][0]["cells"][1]["slots"], [product_id, None, None])
+        with self.assertRaises(GameActionError):
+            engine.apply(state, {"type": "move", "source": {"row": 4, "column": 0, "slot": 0}, "target": {"row": 0, "column": 0, "slot": 0}})
+
+    def test_classic_engine_enforces_configured_deadline_and_pause_freezes_it(self):
+        from datetime import datetime, timedelta
+
+        engine = ClassicGameEngine()
+        now = datetime(2026, 11, 14, 12, 0, 0)
+        snapshot = {
+            "warehouse_layout": {"version": 2, "rows": 1, "columns": 1, "shelves": [
+                {"id": "shelf-1", "cells": [{"row": 0, "column": 0, "slots": [1, 1, 1]}]}
+            ]},
+            "time_limit_seconds": 10,
+            "gameplay_configuration": {"customer_waiting_time_seconds": 0},
+            "orders": [{"customer": {"waiting_seconds": 0}, "items": [{"product_id": 1, "quantity": 3}]}],
+        }
+        state = engine.initial_state(snapshot, now=now)
+        state = engine.apply(state, {"type": "pause"}, now=now + timedelta(seconds=4))
+        state = engine.apply(state, {"type": "resume"}, now=now + timedelta(seconds=40))
+        state = engine.apply(state, {"type": "tick"}, now=now + timedelta(seconds=45))
+        self.assertEqual(state["status"], "active")
+        state = engine.apply(state, {"type": "tick"}, now=now + timedelta(seconds=47))
+        self.assertEqual(state["status"], "game_over")
+        self.assertEqual(state["timers"]["game_over_reason"], "level_time_expired")
+
+    def test_game_routes_persist_server_owned_state_and_replay_actions_idempotently(self):
+        level, product, _customer = self.create_level_content()
+        level.orders[0].items[0].quantity = 2
+        level.status = "published"
+        db.session.commit()
+        self.login(self.admin)
+        self.assertEqual(self.client.get("/cyberpunk-warehouse/").status_code, 200)
+        with self.client.session_transaction() as saved:
+            csrf = saved["cyberpunk_game_csrf"]
+        started = self.client.post(f"/cyberpunk-warehouse/levels/{level.id}/start", data={"csrf_token": csrf})
+        self.assertEqual(started.status_code, 302)
+        game = CyberpunkGameSession.query.one()
+        self.login(self.member)
+        self.assertEqual(self.client.get(f"/cyberpunk-warehouse/session/{game.id}").status_code, 404)
+        self.login(self.admin)
+        self.assertEqual(game.state["level"]["mode"], "classic")
+        self.assertEqual(game.state["warehouse"]["version"], 2)
+        action = {"action_id": "collect-triple-001", "revision": 0, "action": {
+            "type": "move", "source": {"row": 0, "column": 0, "slot": 0},
+            "target": {"row": 0, "column": 0, "slot": 1},
+        }}
+        first = self.client.post(f"/cyberpunk-warehouse/api/session/{game.id}/action", json=action, headers={"X-CSRF-Token": csrf})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json["state"]["inventory"], {str(product.id): 3})
+        replay = self.client.post(f"/cyberpunk-warehouse/api/session/{game.id}/action", json=action, headers={"X-CSRF-Token": csrf})
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.json, first.json)
+        self.assertEqual(CyberpunkGameAction.query.count(), 1)
+        deliver = {"action_id": "deliver-two-0001", "revision": 1, "action": {"type": "deliver", "product_id": product.id, "quantity": 2}}
+        result = self.client.post(f"/cyberpunk-warehouse/api/session/{game.id}/action", json=deliver, headers={"X-CSRF-Token": csrf})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["state"]["inventory"], {str(product.id): 1})
+        self.assertEqual(result.json["state"]["status"], "completed")
+        self.assertEqual(CyberpunkGameSession.query.one().status, "completed")
 
     def test_level_structure_validator_handles_malformed_layout_types(self):
         level, _, _ = self.create_level_content()

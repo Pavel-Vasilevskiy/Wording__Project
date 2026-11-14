@@ -780,6 +780,7 @@ def _level_editor_context(level=None, errors=None, form_values=None):
         "image_url": url_for("cyberpunk_warehouse_admin.serve_asset", asset_id=product.image_asset.id,
                               v=product.image_asset.storage_path) if product.image_asset else "",
         "category_id": product.category_id, "rarity": product.rarity,
+        "spawn_weight": product.spawn_weight,
     } for product in products]
     categories = CyberpunkCategory.query.filter_by(is_active=True).order_by(CyberpunkCategory.sort_order, CyberpunkCategory.name).all()
     customers = CyberpunkCustomer.query.filter_by(is_active=True).order_by(CyberpunkCustomer.sort_order, CyberpunkCustomer.name).all()

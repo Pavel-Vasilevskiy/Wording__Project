@@ -18,6 +18,7 @@ python app_with_auth.py
 ```bash
 fly launch
 fly deploy
+fly deploy --app wordle-game
 ```
 
 ## 🎮 Features

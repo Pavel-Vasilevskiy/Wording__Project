@@ -1,0 +1,26 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ game_session.state.level.name }} · Cyberpunk Warehouse</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='cyberpunk_warehouse/css/game.css') }}">
+  <script defer src="{{ url_for('static', filename='cyberpunk_warehouse/js/game.js') }}"></script>
+</head>
+<body class="cw-game-page" data-action-url="{{ url_for('cyberpunk_warehouse_game.game_action',session_id=game_session.id) }}" data-levels-url="{{ url_for('cyberpunk_warehouse_game.level_list') }}" data-csrf="{{ csrf_token }}">
+  {{ site_navigation(active='cyberpunk') }}
+  <main class="cw-game-shell" id="cyberpunk-game" data-session="{{ game_session.id }}" data-revision="{{ game_session.revision }}" data-state='{{ game_session.state|tojson|forceescape }}'>
+    <header class="cw-game-topbar"><div><p class="cw-game-kicker">{{ game_session.state.level.mode_name }} · Level {{ game_session.state.level.level_number }}</p><h1>{{ game_session.state.level.name }}</h1><p class="cw-game-progress" id="game-progress"></p></div><div class="cw-game-top-actions"><span id="move-count" class="cw-game-status">{{ game_session.state.moves }} moves</span><span id="game-timer" class="cw-game-status" aria-live="off"></span><button class="cw-game-button cw-game-button--secondary" id="pause-game" type="button" {% if game_session.status in ['completed','game_over'] %}disabled{% endif %}>{{ 'Resume' if game_session.status == 'paused' else 'Pause' }}</button><a class="cw-game-button cw-game-button--ghost" href="{{ url_for('cyberpunk_warehouse_game.level_list') }}">Levels</a></div></header>
+    <div class="cw-game-flashes" id="game-message" role="status" aria-live="polite"></div>
+    <div class="cw-game-layout">
+      <section class="cw-game-panel cw-warehouse-panel"><div class="cw-game-section-heading"><div><p class="cw-game-kicker">Sort locally</p><h2>Warehouse</h2><p class="cw-game-help">Select a product, then select a destination. Occupied slots swap.</p></div><span class="cw-game-status" id="selected-slot-label">No product selected</span></div><div id="game-warehouse" class="cw-game-warehouse" aria-label="Warehouse"></div></section>
+      <aside class="cw-game-side">
+        <section class="cw-game-panel cw-customer-panel"><div class="cw-game-section-heading"><div><p class="cw-game-kicker">Current customer</p><h2 id="customer-name">Customer</h2></div></div><div class="cw-customer-display" id="customer-display"></div><div class="cw-order-progress" id="customer-order"></div></section>
+        <section class="cw-game-panel cw-inventory-panel"><div class="cw-game-section-heading"><div><p class="cw-game-kicker">Collected triples</p><h2>Inventory</h2></div><span class="cw-game-status" id="inventory-count">0 items</span></div><div id="game-inventory" class="cw-inventory-list"></div></section>
+      </aside>
+    </div>
+    <section class="cw-game-panel cw-game-result" id="game-result" hidden><p class="cw-game-kicker" id="result-kicker">Run complete</p><h2 id="result-title">Level Completed</h2><p id="result-copy"></p><div class="cw-game-result-actions"><form method="post" action="{{ url_for('cyberpunk_warehouse_game.start_level',level_id=game_session.level_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="cw-game-button" type="submit">Restart level</button></form><a class="cw-game-button cw-game-button--secondary" href="{{ url_for('cyberpunk_warehouse_game.level_list') }}">Back to Levels</a></div></section>
+  </main>
+</body>
+</html>

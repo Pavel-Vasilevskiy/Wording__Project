@@ -1,0 +1,22 @@
+{% from "macros/site_navigation.html" import site_navigation with context %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cyberpunk Warehouse · Levels</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='cyberpunk_warehouse/css/game.css') }}">
+</head>
+<body class="cw-game-page">
+  {{ site_navigation(active='cyberpunk') }}
+  <main class="cw-game-shell cw-level-select">
+    <header class="cw-game-title"><div><p class="cw-game-kicker">Neon District · Warehouse Operations</p><h1>Cyberpunk Warehouse</h1><p>Sort the warehouse into triples, build your inventory, and complete each customer order.</p></div></header>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="cw-game-flashes" role="status">{% for category,message in messages %}<p class="cw-game-flash cw-game-flash--{{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}{% endwith %}
+    {% if sessions %}<section class="cw-game-panel"><h2>Continue a run</h2><div class="cw-level-cards">{% for game in sessions %}<article class="cw-level-card"><div><span class="cw-game-status">{{ game.status|title }}</span><h3>{{ game.level.name }}</h3><p>Level {{ game.level.level_number }} · {{ game.state.get('moves',0) }} moves</p></div><a class="cw-game-button" href="{{ url_for('cyberpunk_warehouse_game.play_session',session_id=game.id) }}">Continue</a></article>{% endfor %}</div></section>{% endif %}
+    <section class="cw-game-panel"><div class="cw-game-section-heading"><div><p class="cw-game-kicker">Classic Mode</p><h2>Available levels</h2></div></div>
+      {% if levels %}<div class="cw-level-cards">{% for level in levels %}<article class="cw-level-card"><div><span class="cw-game-status">{{ level.difficulty|title }}</span><h3>{{ level.name }}</h3><p>Level {{ level.level_number }} · {{ level.game_mode.display_name }}</p>{% if level.description %}<p>{{ level.description }}</p>{% endif %}</div><form method="post" action="{{ url_for('cyberpunk_warehouse_game.start_level',level_id=level.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="cw-game-button" type="submit">Start level</button></form></article>{% endfor %}</div>
+      {% else %}<div class="cw-game-empty"><span aria-hidden="true">▧</span><h3>No playable levels yet</h3><p>Published Classic levels that pass validation will appear here.</p></div>{% endif %}
+    </section>
+  </main>
+</body>
+</html>
